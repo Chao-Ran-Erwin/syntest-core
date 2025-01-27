@@ -48,6 +48,16 @@ export abstract class Statement {
     return this._uniqueId;
   }
 
+  public isEqual(other: Statement): boolean {
+    return (
+      this.variableIdentifier === other.variableIdentifier &&
+      this.typeIdentifier === other.typeIdentifier &&
+      this.name === other.name &&
+      this._ownType === other._ownType &&
+      this.uniqueId === other.uniqueId
+    );
+  }
+
   /**
    * Constructor
    * @param identifierDescription

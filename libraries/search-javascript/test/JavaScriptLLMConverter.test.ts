@@ -16,6 +16,8 @@
  * governing permissions and limitations under the License.
  */
 
+import * as path from "node:path";
+
 import {
   AbstractSyntaxTreeFactory,
   ConstantPool,
@@ -55,6 +57,8 @@ describe("JavaScriptLLMConverter Test", () => {
   it("should convert LLM-generated test case to SynTest-compatible encoding", () => {
     // LLM-generated test case
     const testCaseCode = `
+
+
 describe('ShoppingCart', () => {
     let cart;
 
@@ -65,6 +69,7 @@ describe('ShoppingCart', () => {
     it('should add items to the cart', () => {
         cart.addItem('Apple', 1.99, 2);
         cart.addItem('Banana', 0.99);
+        expect(cart.items.length).toBe(2);
     });
 
     it('should update quantity when adding existing items', () => {
@@ -75,7 +80,7 @@ describe('ShoppingCart', () => {
 
     it('should not add items with negative quantity', () => {
         cart.addItem('Pear', 2.49, -1);
-
+        expect(cart.items.length).toBe(0);
     });
 
     it('should remove items from the cart', () => {
@@ -87,13 +92,13 @@ describe('ShoppingCart', () => {
     it('should remove items completely when quantity reaches 0', () => {
         cart.addItem('Grapes', 3.49, 1);
         cart.removeItem('Grapes');
-
+        expect(cart.items.length).toBe(0);
     });
 
     it('should calculate total price of items in the cart', () => {
         cart.addItem('Milk', 2.99, 2);
         cart.addItem('Eggs', 1.49, 6);
-
+        expect(cart.calculateTotal()).toBeCloseTo(15.39, 2); // Due to floating point precision
     });
 
     it('should view all items in the cart with total price', () => {
@@ -104,15 +109,16 @@ describe('ShoppingCart', () => {
     });
 
     it('should check if the cart is empty', () => {
+        expect(cart.isEmpty()).toBe(true);
         cart.addItem('Water', 0.49);
-
+        expect(cart.isEmpty()).toBe(false);
     });
 
     it('should clear all items from the cart', () => {
         cart.addItem('Book', 9.99);
         cart.addItem('Pen', 0.79, 5);
         cart.clearCart();
-
+        expect(cart.items.length).toBe(0);
     });
 
     // Test scenario combining different methods in sequence
@@ -121,29 +127,32 @@ describe('ShoppingCart', () => {
         cart.addItem('TestItem', 1.0, 3); // Update quantity
         cart.removeItem('TestItem', 2); // Remove some items
         cart.addItem('NegativeItem', 2.0, -2); // Add item with negative quantity
-
+        expect(cart.items.length).toBe(1);
+        expect(cart.calculateTotal()).toBeCloseTo(2.0, 2); // Total should consider only positive quantities
+        expect(cart.isEmpty()).toBe(false); // Cart is not empty
         cart.clearCart();
-
+        expect(cart.isEmpty()).toBe(true); // Cart is empty after clearing
     });
 
     // Test adding items with 0 quantities
     it('should handle items with 0 quantity', () => {
         cart.addItem('ZeroQuantityItem', 3.0, 0);
-
+        expect(cart.items.length).toBe(0); // Item should not be added to the cart
     });
 
     // Test removing items that are not in the cart
     it('should not remove items that are not in the cart', () => {
         cart.removeItem('NonExistingItem');
-
+        expect(cart.items.length).toBe(0); // Cart contents should remain the same
     });
 
     // Test adding items with very large quantities
     it('should handle items with large quantities', () => {
         cart.addItem('LargeQuantityItem', 1.0, Number.MAX_SAFE_INTEGER);
+
+
     });
 });
-
 
        `;
 
@@ -152,95 +161,44 @@ describe('ShoppingCart', () => {
     const testSuite = IRBuilder.injectBeforeEachIntoTestCases(testSuiteBefore);
 
     // Step 2: Analyze code for SynTest compatibility
-    const path =
-      "C:\\Users\\erwin\\syntest-framework\\libraries\\search-javascript\\test\\ShoppingCart.js";
-    const code = `
-class ShoppingCart {
-    constructor(items) {
-        this.items = items;
-    }
+    const rootPath =
+      "C:\\Users\\erwin\\PycharmProjects\\syntest-framework\\libraries\\search-javascript\\test\\benchmark";
+    const shoppingCartPath = path.resolve(rootPath, "ShoppingCart.js");
 
-    // Add an item to the cart
-    addItem(item, price, quantity = 1) {
-        if (quantity <= 0) {
-            console.error("Quantity should be positive.");
-            return;
-        }
-
-        const existingItem = this.items.find(cartItem => cartItem.item === item);
-        if (existingItem) {
-            existingItem.quantity += quantity;
-        } else {
-            this.items.push({ item, price, quantity });
-        }
-    }
-
-    // Remove an item from the cart
-    removeItem(item, quantity = 1) {
-        const itemIndex = this.items.findIndex(cartItem => cartItem.item === item);
-
-        if (itemIndex === -1) {
-            console.error("Item not found in cart.");
-            return;
-        }
-
-        if (this.items[itemIndex].quantity > quantity) {
-            this.items[itemIndex].quantity -= quantity;
-        } else {
-            this.items.splice(itemIndex, 1); // Remove item if quantity drops to 0 or below
-        }
-    }
-
-    // Calculate total price of items in the cart
-    calculateTotal() {
-        return this.items.reduce((total, cartItem) => {
-            return total + cartItem.price * cartItem.quantity;
-        }, 0);
-    }
-
-    // View all items in the cart
-    viewCart() {
-        return this.items.map(cartItem => {
-            return {
-                item: cartItem.item,
-                price: cartItem.price,
-                quantity: cartItem.quantity,
-                total: cartItem.price * cartItem.quantity
-            };
-        });
-    }
-
-    // Check if the cart is empty
-    isEmpty() {
-        return this.items.length === 0;
-    }
-
-    // Clear all items from the cart
-    clearCart() {
-        this.items = [];
-    }
-}
-
-module.exports = ShoppingCart;
-
-    `;
-
-    const astFactory = new AbstractSyntaxTreeFactory();
-    const result = astFactory.convert(path, code);
+    const set: Set<string> = new Set<string>();
+    set.add(shoppingCartPath);
+    const rootContext = new RootContext(
+      rootPath,
+      set,
+      set,
+      new AbstractSyntaxTreeFactory(),
+      new ControlFlowGraphFactory(false),
+      new TargetFactory(false),
+      new DependencyFactory(false),
+      new ExportFactory(false),
+      new TypeExtractor(false),
+      new InferenceTypeModelFactory(),
+      new ConstantPoolFactory(false),
+    );
+    const result = rootContext.getAbstractSyntaxTree(shoppingCartPath);
     if (isFailure(result)) throw result.error;
     const ast = unwrap(result);
 
     const targetMapGenerator = new TargetFactory(false);
-    const targetResult = targetMapGenerator.extract("", ast);
+    const targetResult = targetMapGenerator.extract(shoppingCartPath, ast);
     if (isFailure(targetResult)) throw targetResult.error;
     const target = unwrap(targetResult);
 
-    const cfpResult = new ControlFlowGraphFactory(false).convert("", ast);
+    const cfpResult = new ControlFlowGraphFactory(false).convert(
+      shoppingCartPath,
+      ast,
+    );
     if (isFailure(cfpResult)) throw cfpResult.error;
     const cfp: ControlFlowProgram = unwrap(cfpResult);
 
     const functionObjectives =
       extractFunctionObjectivesFromProgram<JavaScriptTestCase>(cfp);
+
     const branchObjectives =
       extractBranchObjectivesFromProgram<JavaScriptTestCase>(
         cfp,
@@ -260,7 +218,6 @@ module.exports = ShoppingCart;
       ),
       functionObjectives,
     );
-
     const objectives: ObjectiveFunction<JavaScriptTestCase>[] = [];
     objectives.push(
       ...functionObjectives,
@@ -269,9 +226,11 @@ module.exports = ShoppingCart;
     );
     const subject = new JavaScriptSubject(target, objectives);
 
-    // Step 3: Initialize Constant Pools
     const constantPoolFactory = new ConstantPoolFactory(false);
-    const targetConstantPool = constantPoolFactory.extract("", ast);
+    const targetConstantPool = constantPoolFactory.extract(
+      shoppingCartPath,
+      ast,
+    );
     const contextConstantPool = new ConstantPool();
     const dynamicConstantPool = new ConstantPool();
     const constantPoolManager = new ConstantPoolManager(
@@ -303,21 +262,7 @@ module.exports = ShoppingCart;
       0.2,
       testSuite,
     );
-    const set: Set<string> = new Set<string>();
-    set.add(path);
-    const rootContext = new RootContext(
-      "C:\\Users\\erwin\\syntest-framework",
-      set,
-      set,
-      astFactory,
-      new ControlFlowGraphFactory(false),
-      new TargetFactory(false),
-      new DependencyFactory(false),
-      new ExportFactory(false),
-      new TypeExtractor(false),
-      new InferenceTypeModelFactory(),
-      new ConstantPoolFactory(false),
-    );
+
     sampler.rootContext = rootContext;
     // Step 5: Run the conversion process
     const testCases = sampler.convertIRToSynTest(testSuite);

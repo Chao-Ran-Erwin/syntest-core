@@ -20,3 +20,5 @@
 **/instrumentation/VisitState.ts
 **/instrumentation/Visitor.ts
 **/instrumentation/source-coverage.ts
+
+**/benchmark/*.js

@@ -88,6 +88,12 @@ export class ContextBuilder {
   }
 
   getOrCreateVariableName(statement: Statement): string {
+    for (const [key, value] of this.statementVariableNameMap.entries()) {
+      if (statement.isEqual(key)) {
+        return value; // Return the associated value if a match is found
+      }
+    }
+
     if (this.statementVariableNameMap.has(statement)) {
       return this.statementVariableNameMap.get(statement);
     }
