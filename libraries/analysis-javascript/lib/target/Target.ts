@@ -97,3 +97,9 @@ export interface LineTarget extends SubTarget {
   type: TargetType.LINE;
   line: number;
 }
+
+export interface PropertyTarget extends NamedSubTarget {
+  type: TargetType.PROPERTY;
+  classId: string;
+  isStatic: boolean;
+}

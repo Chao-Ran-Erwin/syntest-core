@@ -1,7 +1,6 @@
 class ShoppingCart {
-  constructor() {
-    this.items = [];
-  }
+  items = [];
+  constructor() {}
 
   // Add an item to the cart
   addItem(item, price, quantity = 1) {
@@ -63,6 +62,14 @@ class ShoppingCart {
   // Clear all items from the cart
   clearCart() {
     this.items = [];
+  }
+
+  get items() {
+    return this.items;
+  }
+
+  set items(x) {
+    this.items = x;
   }
 }
 

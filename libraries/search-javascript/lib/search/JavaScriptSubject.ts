@@ -36,7 +36,8 @@ export class JavaScriptSubject extends SearchSubject<JavaScriptTestCase> {
         t.type === TargetType.CLASS ||
         t.type === TargetType.METHOD ||
         t.type === TargetType.OBJECT ||
-        t.type === TargetType.OBJECT_FUNCTION
+        t.type === TargetType.OBJECT_FUNCTION ||
+        t.type === TargetType.PROPERTY
       );
     });
   }

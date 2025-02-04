@@ -88,16 +88,16 @@ export class ContextBuilder {
   }
 
   getOrCreateVariableName(statement: Statement): string {
+    if (this.statementVariableNameMap.has(statement)) {
+      return this.statementVariableNameMap.get(statement);
+    }
+    // Added this due to .has using reference equality instead of structural equality.
+    // TODO Figure out why reference equality is not working
     for (const [key, value] of this.statementVariableNameMap.entries()) {
       if (statement.isEqual(key)) {
         return value; // Return the associated value if a match is found
       }
     }
-
-    if (this.statementVariableNameMap.has(statement)) {
-      return this.statementVariableNameMap.get(statement);
-    }
-
     let variableName = statement.name;
 
     variableName = variableName.replaceAll(/[^A-Za-z]/g, "");

@@ -795,15 +795,19 @@ export class InferenceTypeModelFactory extends TypeModelFactory {
 
     // TODO what if the property is not an element
     const propertyElement = elementMap.get(propertyId);
-    const propertyName =
-      "name" in propertyElement ? propertyElement.name : propertyElement.value;
+    if (propertyElement !== undefined) {
+      const propertyName =
+        "name" in propertyElement
+          ? propertyElement.name
+          : propertyElement.value;
 
-    // make object for the class
-    this._typeModel.addPropertyType(classId, propertyName, propertyId);
+      // make object for the class
+      this._typeModel.addPropertyType(classId, propertyName, propertyId);
 
-    // connect property to value
-    if (valueId !== undefined) {
-      this._typeModel.addStrongRelation(propertyId, valueId);
+      // connect property to value
+      if (valueId !== undefined) {
+        this._typeModel.addStrongRelation(propertyId, valueId);
+      }
     }
   }
 
@@ -995,6 +999,7 @@ export class InferenceTypeModelFactory extends TypeModelFactory {
 
     this._typeModel.addTypeScore(relation.id, TypeEnum.UNDEFINED);
   }
+
   private _specialAssignment(relation: Relation, involved: string[]) {
     this._assignment(relation, involved);
     const [leftId, rightId] = involved;

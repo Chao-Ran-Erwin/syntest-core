@@ -75,7 +75,7 @@ describe('ShoppingCart', () => {
     it('should update quantity when adding existing items', () => {
         cart.addItem('Apple', 1.99);
         cart.addItem('Apple', 1.99, 3);
-
+        expect(cart.items.find(item => item.item === 'Apple').quantity).toBe(4);
     });
 
     it('should not add items with negative quantity', () => {
@@ -86,7 +86,7 @@ describe('ShoppingCart', () => {
     it('should remove items from the cart', () => {
         cart.addItem('Orange', 0.79, 3);
         cart.removeItem('Orange', 1);
-
+        expect(cart.items.find(item => item.item === 'Orange').quantity).toBe(2);
     });
 
     it('should remove items completely when quantity reaches 0', () => {
@@ -105,7 +105,10 @@ describe('ShoppingCart', () => {
         cart.addItem('Chips', 1.29, 2);
         cart.addItem('Soda', 0.99, 3);
         const cartItems = cart.viewCart();
-
+        expect(cartItems).toEqual([
+            { item: 'Chips', price: 1.29, quantity: 2, total: 2.58 },
+            { item: 'Soda', price: 0.99, quantity: 3, total: 2.97 }
+        ]);
     });
 
     it('should check if the cart is empty', () => {
@@ -149,16 +152,20 @@ describe('ShoppingCart', () => {
     // Test adding items with very large quantities
     it('should handle items with large quantities', () => {
         cart.addItem('LargeQuantityItem', 1.0, Number.MAX_SAFE_INTEGER);
-
-
+        expect(cart.items.find(item => item.item === 'LargeQuantityItem').quantity).toBe(Number.MAX_SAFE_INTEGER); // Quantity should match the value added
     });
 });
 
        `;
 
     // Step 1: Convert LLM-generated code to IR
-    const testSuiteBefore = IRBuilder.buildIR(testCaseCode);
-    const testSuite = IRBuilder.injectBeforeEachIntoTestCases(testSuiteBefore);
+    const irBuilder = new IRBuilder();
+    const testSuite = irBuilder.buildIR(testCaseCode);
+    // Test suit post-processing
+    const temporaryTestSuite =
+      irBuilder.injectBeforeEachIntoTestCases(testSuite);
+    const finalTestSuite =
+      irBuilder.postProcessFlattenChainedMemberExpressions(temporaryTestSuite);
 
     // Step 2: Analyze code for SynTest compatibility
     const rootPath =
@@ -260,12 +267,12 @@ describe('ShoppingCart', () => {
       0.2,
       0.2,
       0.2,
-      testSuite,
+      finalTestSuite,
     );
 
     sampler.rootContext = rootContext;
     // Step 5: Run the conversion process
-    const testCases = sampler.convertIRToSynTest(testSuite);
+    const testCases = sampler.convertIRToSynTest(finalTestSuite);
     const decoder = new JavaScriptDecoder("");
 
     // Step 6: Decode the test cases to verify correctness

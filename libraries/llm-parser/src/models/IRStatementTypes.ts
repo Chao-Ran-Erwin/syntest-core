@@ -44,3 +44,7 @@ export interface VariableDeclarationData {
   kind: "var" | "let" | "const" | "using" | "await using"; // Declaration type
   init?: IRStatement; // Initialization expression
 }
+
+export interface ObjectExpressionData {
+  properties: Record<string, IRStatement>; // Define properties as a record of IRStatements
+}

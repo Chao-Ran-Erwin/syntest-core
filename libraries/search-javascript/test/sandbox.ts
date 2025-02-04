@@ -53,7 +53,7 @@ describe("sampler info", () => {
     initializePseudoRandomNumberGenerator("0");
   });
   it("run sampler", () => {
-    // const path: string =
+    // const rootPath: string =
     //   "..\\search-javascript\\test\\benchmark";
     // const shoppingCartPath =  "..\\search-javascript\\test\\benchmark\\ShoppingCart.js";
     // Define root path

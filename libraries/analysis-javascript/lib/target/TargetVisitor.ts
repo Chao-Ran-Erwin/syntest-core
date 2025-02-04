@@ -35,6 +35,7 @@ import {
   NamedSubTarget,
   ObjectFunctionTarget,
   ObjectTarget,
+  PropertyTarget,
   SubTarget,
 } from "./Target";
 
@@ -805,43 +806,37 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
         );
       } else if (classBodyAttribute.isClassProperty()) {
         const key = classBodyAttribute.get("key");
-        const value = classBodyAttribute.get("value");
-
-        if (value) {
-          const id = this._getNodeId(classBodyAttribute);
-          let targetName: string;
-          if (key.isIdentifier()) {
-            targetName = key.node.name;
-          } else if (
-            key.isStringLiteral() ||
-            key.isBooleanLiteral() ||
-            key.isNumericLiteral() ||
-            key.isBigIntLiteral()
-          ) {
-            targetName = String(key.node.value);
-          }
-
-          if (value.isFunction()) {
-            this._extractFromFunction(
-              value,
-              id,
-              id,
-              targetName,
-              undefined,
-              false,
-              true,
-              classId,
-            );
-          } else if (value.isClass()) {
-            this._extractFromClass(value, id, id, targetName);
-          } else if (value.isObjectExpression()) {
-            this._extractFromObjectExpression(value, id, id, targetName);
-          } else {
-            // TODO
-          }
+        let propertyName: string;
+        if (key.isIdentifier()) {
+          propertyName = key.node.name;
+        } else if (
+          key.isStringLiteral() ||
+          key.isBooleanLiteral() ||
+          key.isNumericLiteral() ||
+          key.isBigIntLiteral()
+        ) {
+          propertyName = String(key.node.value);
+        } else {
+          this._logOrFail(
+            unsupportedSyntax(key.node.type, this._getNodeId(key)),
+          );
+          continue;
         }
+
+        // Create a dedicated PropertyTarget
+        const propertyId = this._getNodeId(classBodyAttribute);
+        const propertyTarget: PropertyTarget = {
+          id: propertyId,
+          typeId: propertyId,
+          name: propertyName,
+          type: TargetType.PROPERTY,
+          classId: classId,
+          isStatic: classBodyAttribute.node.static || false,
+        };
+
+        this._subTargets.push(propertyTarget);
       } else {
-        return this._logOrFail(
+        this._logOrFail(
           unsupportedSyntax(
             body.node.type,
             this._getNodeId(classBodyAttribute),

@@ -19,25 +19,26 @@ import * as babelParser from "@babel/parser";
 import traverse, { NodePath } from "@babel/traverse";
 import * as t from "@babel/types";
 
-export const ASTParser = {
+export class ASTParser {
+  constructor() {}
   /**
    * Parses JavaScript code into an Abstract Syntax Tree (AST).
    * @param code - The JavaScript code to parse.
    * @returns The parsed AST.
    */
-  parse(code: string): t.File {
+  public static parse(code: string): t.File {
     return babelParser.parse(code, {
       sourceType: "module", // Supports ES modules
       plugins: ["jsx", "typescript"], // Add plugins for JSX and TypeScript if needed
     });
-  },
+  }
 
   /**
    * Extracts `describe` blocks from the AST.
    * @param ast - The AST to traverse.
    * @returns An array of describe block details.
    */
-  extractDescribeBlocks(
+  public static extractDescribeBlocks(
     ast: t.File,
   ): Array<{ name: string; node: t.CallExpression }> {
     const describeBlocks: Array<{ name: string; node: t.CallExpression }> = [];
@@ -58,14 +59,14 @@ export const ASTParser = {
     });
 
     return describeBlocks;
-  },
+  }
 
   /**
    * Extracts `it` blocks from a given `describe` block.
    * @param describeNode - The `describe` block's AST node.
    * @returns An array of it block details.
    */
-  extractItBlocks(
+  public static extractItBlocks(
     describeNode: t.CallExpression,
   ): Array<{ name: string; node: t.CallExpression }> {
     const itBlocks: Array<{ name: string; node: t.CallExpression }> = [];
@@ -90,14 +91,14 @@ export const ASTParser = {
     });
 
     return itBlocks;
-  },
+  }
 
   /**
    * Extracts the body of a function (e.g., `it` or `beforeEach`).
    * @param functionNode - The function expression or arrow function node.
    * @returns The statements inside the function body.
    */
-  extractFunctionBody(
+  public static extractFunctionBody(
     functionNode: t.FunctionExpression | t.ArrowFunctionExpression,
   ): t.Statement[] {
     if (t.isBlockStatement(functionNode.body)) {
@@ -106,14 +107,14 @@ export const ASTParser = {
 
     // For concise arrow functions, wrap the single expression in a BlockStatement
     return [t.expressionStatement(functionNode.body)];
-  },
+  }
 
   /**
    * Extracts `beforeEach` blocks from the AST.
    * @param ast - The AST to traverse.
    * @returns An array of beforeEach block details.
    */
-  extractBeforeEachBlocks(
+  public static extractBeforeEachBlocks(
     ast: t.File,
   ): Array<{ node: t.CallExpression; body: t.Statement[] }> {
     const beforeEachBlocks: Array<{
@@ -144,5 +145,5 @@ export const ASTParser = {
     });
 
     return beforeEachBlocks;
-  },
-};
+  }
+}

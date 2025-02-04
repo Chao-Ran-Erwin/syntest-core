@@ -119,7 +119,8 @@ describe('ShoppingCart', () => {
         `;
 
       // Step 1: Build the IR
-      const testSuite = IRBuilder.buildIR(code);
+      const irBuilder = new IRBuilder();
+      const testSuite = irBuilder.buildIR(code);
       console.log(JSON.stringify(testSuite));
       // Step 2: Assertions on TestSuite
       expect(testSuite).toBeInstanceOf(TestSuite);
@@ -215,10 +216,10 @@ describe('ShoppingCart', () => {
           it("should remove items", () => {});
         });
       `;
-
+      const irBuilder = new IRBuilder();
       const ast = ASTParser.parse(code);
       const describeBlocks = ASTParser.extractDescribeBlocks(ast);
-      const describeBlock = IRBuilder.buildDescribeBlock(describeBlocks[0]);
+      const describeBlock = irBuilder.buildDescribeBlock(describeBlocks[0]);
 
       expect(describeBlock).toBeInstanceOf(DescribeBlock);
       expect(describeBlock.name).toBe("Cart");
@@ -241,10 +242,10 @@ describe('ShoppingCart', () => {
           it("should add items", () => {});
         });
       `;
-
+      const irBuilder = new IRBuilder();
       const ast = ASTParser.parse(code);
       const describeBlocks = ASTParser.extractDescribeBlocks(ast);
-      const describeBlock = IRBuilder.buildDescribeBlock(describeBlocks[0]);
+      const describeBlock = irBuilder.buildDescribeBlock(describeBlocks[0]);
 
       expect(describeBlock.beforeEachBodies).toHaveLength(1);
 
@@ -263,11 +264,11 @@ describe('ShoppingCart', () => {
           });
         });
       `;
-
+      const irBuilder = new IRBuilder();
       const ast = ASTParser.parse(code);
       const describeBlocks = ASTParser.extractDescribeBlocks(ast);
       const itBlocks = ASTParser.extractItBlocks(describeBlocks[0].node);
-      const testCase = IRBuilder.buildTestCase(itBlocks[0]);
+      const testCase = irBuilder.buildTestCase(itBlocks[0]);
 
       expect(testCase).toBeInstanceOf(TestCase);
       expect(testCase.name).toBe("should add items to the cart");
@@ -284,12 +285,12 @@ describe('ShoppingCart', () => {
           it("should fail without a function");
         });
       `;
-
+      const irBuilder = new IRBuilder();
       const ast = ASTParser.parse(code);
       const describeBlocks = ASTParser.extractDescribeBlocks(ast);
       const itBlocks = ASTParser.extractItBlocks(describeBlocks[0].node);
 
-      expect(() => IRBuilder.buildTestCase(itBlocks[0])).toThrowError(
+      expect(() => irBuilder.buildTestCase(itBlocks[0])).toThrowError(
         /Expected a function in 'it' block/,
       );
     });
@@ -297,9 +298,10 @@ describe('ShoppingCart', () => {
 
   describe("buildStatement", () => {
     it("should correctly parse a numeric literal", () => {
+      const irBuilder = new IRBuilder();
       const code = `42;`;
       const ast = ASTParser.parse(code);
-      const statement = IRBuilder.buildStatement(ast.program.body[0]);
+      const statement = irBuilder.buildStatement(ast.program.body[0]);
 
       expect(statement).toBeInstanceOf(IRStatement);
       expect(statement.type).toBe("Numeric");
@@ -307,9 +309,10 @@ describe('ShoppingCart', () => {
     });
 
     it("should correctly parse a call expression", () => {
+      const irBuilder = new IRBuilder();
       const code = `cart.addItem('Apple', 1.99);`;
       const ast = ASTParser.parse(code);
-      const statement = IRBuilder.buildStatement(ast.program.body[0]);
+      const statement = irBuilder.buildStatement(ast.program.body[0]);
 
       expect(statement).toBeInstanceOf(IRStatement);
       expect(statement.type).toBe("CallExpression");
@@ -328,8 +331,8 @@ describe('ShoppingCart', () => {
           it("test2", () => {});
         });
       `;
-
-      const testSuite = IRBuilder.buildIR(code);
+      const irBuilder = new IRBuilder();
+      const testSuite = irBuilder.buildIR(code);
 
       expect(testSuite).toBeInstanceOf(TestSuite);
       expect(testSuite.describeBlocks).toHaveLength(2);

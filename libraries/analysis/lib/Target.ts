@@ -79,4 +79,6 @@ export enum TargetType {
   PATH = "path",
   BRANCH = "branch",
   LINE = "line",
+
+  PROPERTY = "property",
 }

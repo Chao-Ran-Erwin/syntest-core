@@ -192,6 +192,14 @@ export class AbstractSyntaxTreeVisitor implements TraverseOptions {
       // e.g. export { foo } from "./bar"
       return this._getNodeId(path);
     }
+    if (
+      path.parentPath.isClassProperty() &&
+      path.parentPath.get("key") === path
+    ) {
+      // we are the key of a class property (a plain property field)
+      // so this is the first definition of the property
+      return this._getNodeId(path);
+    }
 
     if (!path.isIdentifier()) {
       // non identifier so we get the relation id

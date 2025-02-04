@@ -23,8 +23,10 @@ import {
   FunctionTarget,
   isExported,
   MethodTarget,
+  PropertyTarget,
 } from "@syntest/analysis-javascript";
-import { ImplementationError, unwrapOr } from "@syntest/diagnostics";
+import { unwrapOr } from "@syntest/diagnostics";
+import { getLogger, Logger } from "@syntest/logging";
 import { prng } from "@syntest/prng";
 import { IRStatement } from "llmparser/src/models/IRStatement";
 import {
@@ -32,6 +34,7 @@ import {
   CallExpressionData,
   ConstructorCallData,
   MemberExpressionData,
+  ObjectExpressionData,
   VariableDeclarationData,
 } from "llmparser/src/models/IRStatementTypes";
 import { TestSuite } from "llmparser/src/models/TestSuite";
@@ -60,8 +63,9 @@ import { Statement } from "../statements/Statement";
 import { JavaScriptTestCaseSampler } from "./JavaScriptTestCaseSampler";
 
 export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
+  protected static LOGGER: Logger;
   private irTestSuite: TestSuite;
-  private constructorMap: Map<string, ConstructorCall>;
+  private statementMap: Map<string, Statement>;
 
   constructor(
     subject: JavaScriptSubject,
@@ -107,7 +111,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
       removeArgumentProbability,
     );
     this.irTestSuite = irTestSuite;
-    this.constructorMap = new Map<string, ConstructorCall>();
+    this.statementMap = new Map<string, Statement>(); // Uses variable name as key, assume LLM's don't reuse variable names
+    JavaScriptLLMConverter.LOGGER = getLogger(JavaScriptLLMConverter.name);
   }
 
   convertIRToSynTest(irTestSuite: TestSuite): JavaScriptTestCase[] {
@@ -116,10 +121,11 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     for (const describeBlock of irTestSuite.describeBlocks) {
       for (const testCase of describeBlock.testCases) {
         const statements = this._processIRStatements(0, testCase.statements);
-        testCases.push(new JavaScriptTestCase(statements));
+        // Filter out any undefined statements that were discarded
+        const filteredStatements = statements.filter((s) => s !== undefined);
+        testCases.push(new JavaScriptTestCase(filteredStatements));
       }
     }
-
     return testCases;
   }
 
@@ -129,22 +135,27 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
   }
 
   sampleRoot(): ActionStatement {
-    // const targets = (<JavaScriptSubject>this._subject).getActionableTargets();
-    throw new Error("Future");
+    JavaScriptLLMConverter.LOGGER.error("sampleRoot not implemented");
+    return undefined;
   }
 
   override sampleFunctionCall(
     depth: number,
     data?: CallExpressionData,
   ): FunctionCall {
-    if (!data)
-      throw new Error("CallExpression data is required for FunctionCall.");
+    if (!data) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        "CallExpression data is required for FunctionCall.",
+      );
+      return undefined;
+    }
 
     // Extract the function name from the callee
     if (data.callee.type !== "Identifier") {
-      throw new Error(
+      JavaScriptLLMConverter.LOGGER.warn(
         `Expected Identifier for FunctionCall, but got ${data.callee.type}.`,
       );
+      return undefined;
     }
 
     const functionName = (data.callee.data as { name: string }).name;
@@ -156,11 +167,31 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     const functionTarget = <FunctionTarget>(
       targets.find((t) => (t as FunctionTarget).name === functionName)
     );
+    if (!functionTarget) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        `Function target not found for: ${functionName}`,
+      );
+      return undefined;
+    }
+    const type_ = this.rootContext
+      .getTypeModel()
+      .getObjectDescription(functionTarget.typeId);
+    const arguments_ = [];
 
-    // Map arguments from IR to SynTest-compatible statements
-    const arguments_: Statement[] = data.args.map((argument) =>
-      this._mapArgument(depth + 1, argument),
-    );
+    for (const [index, argument] of data.args.entries()) {
+      // Retrieve parameter information
+      const parameterId = type_.parameters.get(index);
+      const name = type_.parameterNames.get(index);
+
+      // Map the argument to a Statement
+      arguments_[index] = this._mapArgument(
+        depth + 1,
+        argument,
+        parameterId,
+        parameterId,
+        name,
+      );
+    }
     const export_ = this._getExport(functionTarget.id);
     // Construct and return a FunctionCall
     return new FunctionCall(
@@ -179,8 +210,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     data?: ConstructorCallData,
     name?: string,
   ): ConstructorCall {
-    if (name && this.constructorMap.has(name)) {
-      return this.constructorMap.get(name);
+    if (name && this.statementMap.has(name)) {
+      return this.statementMap.get(name) as ConstructorCall;
     }
     // Case 1: Construct from IR data
     if (data) {
@@ -189,7 +220,12 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           .getActionableTargetsByType(TargetType.CLASS)
           .find((t) => (t as ClassTarget).name === data.callee)
       );
-
+      if (!class_) {
+        JavaScriptLLMConverter.LOGGER.warn(
+          `Class target not found for: ${JSON.stringify(data.callee)}`,
+        );
+        return undefined;
+      }
       const constructor_ = (<JavaScriptSubject>this._subject)
         .getActionableTargetsByType(TargetType.METHOD)
         .find(
@@ -198,11 +234,33 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
             (<MethodTarget>method).methodType === "constructor",
         );
 
+      if (!constructor_) {
+        JavaScriptLLMConverter.LOGGER.warn(
+          `Constructor not found for class: ${class_.id}`,
+        );
+        return undefined;
+      }
+
       const constructor: MethodTarget = <MethodTarget>constructor_;
-      // Map IR arguments to SynTest-compatible Statements
-      const arguments_ = data.args.map((argument) =>
-        this._mapArgument(depth + 1, argument),
-      );
+      const arguments_ = [];
+      const type_ = this.rootContext
+        .getTypeModel()
+        .getObjectDescription(constructor.typeId);
+
+      for (const [index, argument] of data.args.entries()) {
+        // Retrieve parameter information
+        const parameterId = type_.parameters.get(index);
+        const name = type_.parameterNames.get(index);
+
+        // Map the argument to a Statement
+        arguments_[index] = this._mapArgument(
+          depth + 1,
+          argument,
+          parameterId,
+          parameterId,
+          name,
+        );
+      }
 
       const export_ = this._getExport(class_.id);
 
@@ -216,57 +274,34 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         export_,
       );
 
-      this.constructorMap.set(name, constructorCall);
+      this.statementMap.set(name, constructorCall);
       return constructorCall;
     }
 
-    // // Case 2: Dynamically find and generate constructor
-    // if (classId) {
-    //   const class_ = this._getClass(classId);
-    //
-    //   // Get the constructor of the class
-    //   const constructors = (<JavaScriptSubject>this._subject)
-    //     .getActionableTargetsByType(TargetType.METHOD)
-    //     .filter(
-    //       (method) =>
-    //         (<MethodTarget>method).classId === class_.id &&
-    //         (<MethodTarget>method).methodType === "constructor",
-    //     );
-    //
-    //   if (constructors.length > 1) {
-    //     throw new Error("Multiple constructors found for class.");
-    //   }
-    //
-    //   if (constructors.length === 1) {
-    //     const export_ = this._getExport(class_.id);
-    //     return new ConstructorCall(
-    //       constructors[0].id,
-    //       (<MethodTarget>constructors[0]).typeId,
-    //       class_.id,
-    //       class_.name,
-    //       prng.uniqueId(),
-    //       [],
-    //       export_,
-    //     );
-    //   }
-    // }
-
-    throw new Error(
+    JavaScriptLLMConverter.LOGGER.warn(
       "Either data or classId must be provided for sampleConstructorCall.",
     );
+    return undefined;
   }
 
   sampleClassAction(depth: number): MethodCall | Getter | Setter {
-    throw new Error("Unnecessary." + depth);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleClassAction not implemented: " + depth,
+    );
+    return undefined;
   }
 
   override sampleMethodCall(
     depth: number,
     data?: CallExpressionData,
   ): MethodCall {
-    if (!data) throw new Error("CallExpression data is required.");
+    if (!data) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        "CallExpression data is required for MethodCall.",
+      );
+      return undefined;
+    }
 
-    // Resolve the method name from the callee
     const methodName = this._extractMethodName(data.callee);
     const targets = (<JavaScriptSubject>this._subject).getActionableTargets();
     const methods = (<JavaScriptSubject>this._subject)
@@ -281,16 +316,18 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         ),
       );
 
-    // for (const x of methods) console.log(`methods: ${JSON.stringify(x)}`)
     // Retrieve the method target
     const methodTarget = <MethodTarget>(
       methods.find((t) => (t as MethodTarget).name === methodName)
     );
 
-    if (!methodTarget)
-      throw new Error(
+    if (!methodTarget) {
+      JavaScriptLLMConverter.LOGGER.warn(
         `Method '${methodName}' not found in actionable targets!`,
       );
+      return undefined;
+    }
+    // Get id and typeId of arguments
     const type_ = this.rootContext
       .getTypeModel()
       .getObjectDescription(methodTarget.typeId);
@@ -300,15 +337,15 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     for (const [index, argument] of data.args.entries()) {
       // Retrieve parameter information
       const parameterId = type_.parameters.get(index);
-      const name = type_.parameterNames.get(index) || `param${index}`; // Fallback name
+      const name = type_.parameterNames.get(index);
 
       // Map the argument to a Statement
       arguments_[index] = this._mapArgument(
         depth + 1,
         argument,
+        parameterId,
+        parameterId,
         name,
-        parameterId, // The parameter type
-        parameterId, // Identifier for the parameter
       );
     }
 
@@ -319,11 +356,18 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     const objectName =
       data.callee.type === "MemberExpression" &&
       calleeData.object.type === "Identifier"
-        ? (calleeData.object.data as { name: string }).name
+        ? (
+            calleeData.object.data as {
+              name: string;
+            }
+          ).name
         : (() => {
-            throw new Error("Callee object is not an Identifier");
+            JavaScriptLLMConverter.LOGGER.warn(
+              "Callee object is not an Identifier",
+            );
+            return "unknown";
           })();
-    let constructorCall = this.constructorMap.get(objectName);
+    let constructorCall = this.statementMap.get(objectName) as ConstructorCall;
     if (!constructorCall) {
       // Create a new constructor and save it in the map for future reuse
       constructorCall = this.sampleConstructorCall(
@@ -332,7 +376,14 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         undefined,
         objectName,
       );
-      this.constructorMap.set(objectName, constructorCall);
+      if (constructorCall) {
+        this.statementMap.set(objectName, constructorCall);
+      } else {
+        JavaScriptLLMConverter.LOGGER.warn(
+          `Could not create constructor call for object: ${objectName}`,
+        );
+        return undefined;
+      }
     }
 
     return new MethodCall(
@@ -350,84 +401,99 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     name?: string,
     data?: MemberExpressionData,
   ): Getter {
-    // Recursively construct the property access chain
-    const propertyAccessChain = this._getPropertyAccessChain(data);
-
-    // Map the deepest object to its constructor or create a new one
-    const objectName = propertyAccessChain[0];
-    let constructorCall = this.constructorMap.get(objectName);
-    if (!constructorCall) {
-      constructorCall = this.sampleConstructorCall(
-        depth + 1,
-        "julu", // TODO: Class ID
-        undefined, // No ConstructorCallData
-        objectName, // Variable name
+    const propertyName = data.property as string;
+    console.log(propertyName);
+    // console.log(propertyName)
+    const property = (<JavaScriptSubject>this._subject)
+      .getActionableTargetsByType(TargetType.PROPERTY)
+      .find(
+        (propertyTarget) =>
+          (propertyTarget as PropertyTarget).name === propertyName,
       );
-      this.constructorMap.set(objectName, constructorCall);
+    if (!property) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        `Property not in list: ${propertyName}`,
+      );
+      return undefined;
+    }
+    let constructorName: string;
+    if (
+      typeof data.object === "object" &&
+      "data" in data.object &&
+      (data.object.data as { name?: string }).name
+    ) {
+      constructorName = (data.object.data as { name: string }).name;
+    } else if (typeof data.object === "string") {
+      // In case data.object is directly given as a string.
+      constructorName = data.object;
+    } else {
+      JavaScriptLLMConverter.LOGGER.error(
+        "Unsupported object type in MemberExpressionData",
+      );
+      return undefined;
     }
 
-    // Construct a Getter for the full property chain
-    const propertyPath = propertyAccessChain.slice(1).join(".");
+    const constructor_ = this.statementMap.get(
+      constructorName,
+    ) as ConstructorCall;
+    if (!constructor_) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        `Constructor call not found for class: ${constructorName}`,
+      );
+      return undefined;
+    }
+    if (constructor_.classIdentifier !== (property as PropertyTarget).classId) {
+      JavaScriptLLMConverter.LOGGER.error(
+        `Wrong constructor class in sampleGetter ${constructor_.classIdentifier}`,
+      );
+      return undefined;
+    }
     return new Getter(
-      constructorCall.variableIdentifier,
-      constructorCall.typeIdentifier,
-      propertyPath,
+      property.id,
+      property.id,
+      propertyName,
       prng.uniqueId(),
-      constructorCall,
-    );
-  }
-
-  sampleSetter(depth: number, data?: CallExpressionData): Setter {
-    if (!data) throw new Error("CallExpression data is required for Setter.");
-
-    // Extract property name and object from the MemberExpression
-    if (data.callee.type !== "MemberExpression") {
-      throw new Error(
-        `Expected MemberExpression for Setter, but got ${data.callee.type}.`,
-      );
-    }
-    const targets = (<JavaScriptSubject>this._subject).getActionableTargets();
-    const calleeData = data.callee.data as MemberExpressionData;
-    const objectName = (calleeData.object.data as { name: string }).name;
-    const argument = this._mapArgument(depth + 1, data.args[0]);
-    const methods = (<JavaScriptSubject>this._subject)
-      .getActionableTargetsByType(TargetType.METHOD)
-      .filter((method) => (<MethodTarget>method).methodType === "set")
-      .filter((target) =>
-        isExported(
-          targets.find(
-            (objectTarget) =>
-              objectTarget.id === (<MethodTarget>target).classId,
-          ),
-        ),
-      );
-
-    const method = <MethodTarget>(
-      methods.find((t) => (t as MethodTarget).name === objectName)
-    );
-    const class_ = this._getClass(method.classId);
-    const constructor_ = this.sampleConstructorCall(depth + 1, class_.id);
-
-    return new Setter(
-      method.id,
-      method.typeId,
-      method.name,
-      prng.uniqueId(),
-      argument,
       constructor_,
     );
   }
 
+  sampleSetter(depth: number, left?: Getter, right?: Statement): Setter {
+    // NOTE: if left or right is undefined, log and return undefined.
+    if (!left || !right) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        "Setter missing left getter or right statement",
+      );
+      return undefined;
+    }
+    return new Setter(
+      left.variableIdentifier,
+      left.typeIdentifier,
+      left.name,
+      prng.uniqueId(),
+      right,
+      left.constructor_,
+    );
+  }
+
   sampleConstantObject(depth: number, objectId?: string): ConstantObject {
-    throw new Error("Future" + depth + objectId);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleConstantObject not implemented: " + depth + objectId,
+    );
+    return undefined;
   }
 
   sampleObjectFunctionCall(depth: number): ObjectFunctionCall {
-    throw new Error("Future" + depth);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleObjectFunctionCall not implemented: " + depth,
+    );
+    return undefined;
   }
 
   sampleArrayArgument(depth: number, arrayId: string): Statement {
-    throw new Error("Future" + depth + arrayId);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleArrayArgument not implemented: " + depth + arrayId,
+    );
+    return undefined;
   }
 
   sampleObjectArgument(
@@ -435,11 +501,17 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     objectId: string,
     property?: string,
   ): Statement {
-    throw new Error("Unnecessary" + depth + objectId + property);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleObjectArgument not implemented: " + depth + objectId + property,
+    );
+    return undefined;
   }
 
   sampleArgument(depth: number, id: string, name: string): Statement {
-    throw new Error("Unnecessary" + depth + id + name);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleArgument not implemented: " + depth + id + name,
+    );
+    return undefined;
   }
 
   sampleObject(
@@ -447,8 +519,21 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     id: string,
     typeId: string,
     name: string,
-  ): FunctionCall | ConstructorCall | ConstantObject | ObjectStatement {
-    throw new Error("Method not implemented." + depth + id + typeId + name);
+    data?: ObjectExpressionData,
+  ): ObjectStatement {
+    const object_: { [key: string]: Statement } = {};
+    for (const [key, value] of Object.entries(data.properties)) {
+      // Map each property to a corresponding SynTest statement
+      const mapped = this._mapArgument(depth + 1, value, key);
+      if (mapped) {
+        object_[key] = mapped;
+      } else {
+        JavaScriptLLMConverter.LOGGER.warn(
+          `Property ${key} could not be mapped in Object.`,
+        );
+      }
+    }
+    return new ObjectStatement(id, typeId, name, prng.uniqueId(), object_);
   }
 
   sampleArray(
@@ -456,8 +541,14 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     id: string,
     typeId: string,
     name: string,
+    data?: IRStatement[],
   ): ArrayStatement {
-    throw new Error("Future work" + depth + id + typeId + name);
+    const elements: Statement[] = (data || [])
+      .map((statement) =>
+        this._mapArgument(depth + 1, statement, "id", "typeid", "arrayElement"),
+      )
+      .filter((s) => s !== undefined);
+    return new ArrayStatement(id, typeId, name, prng.uniqueId(), elements);
   }
 
   sampleArrowFunction(
@@ -466,7 +557,10 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     typeId: string,
     name: string,
   ): ArrowFunctionStatement {
-    throw new Error("Future work" + depth + id + typeId + name);
+    JavaScriptLLMConverter.LOGGER.warn(
+      "sampleArrowFunction not implemented: " + depth + id + typeId + name,
+    );
+    return undefined;
   }
 
   sampleString(
@@ -524,137 +618,156 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     const processedStatements: ActionStatement[] = [];
 
     for (const irStatement of irStatements) {
-      switch (irStatement.type) {
-        case "ConstructorCall": {
-          processedStatements.push(
-            this.sampleConstructorCall(
+      try {
+        switch (irStatement.type) {
+          case "ConstructorCall": {
+            const stmt = this.sampleConstructorCall(
               depth,
-              "",
+              undefined,
               irStatement.data as ConstructorCallData,
-            ),
-          );
-          break;
-        }
+            );
+            if (stmt) processedStatements.push(stmt);
+            break;
+          }
 
-        case "CallExpression": {
-          const data = irStatement.data as CallExpressionData;
-          if (data.callee.type === "MemberExpression") {
-            const calleeData = data.callee.data as MemberExpressionData;
-            const calleeCallExpression = calleeData.object
-              .data as CallExpressionData;
+          case "CallExpression": {
+            const data = irStatement.data as CallExpressionData;
+            if (data.callee.type === "MemberExpression") {
+              const calleeData = data.callee.data as MemberExpressionData;
+              const calleeCallExpression = calleeData.object
+                .data as CallExpressionData;
 
-            // Expect case
-            if (
-              calleeData.object.type === "CallExpression" &&
-              calleeCallExpression.callee.type === "Identifier" &&
-              (calleeCallExpression.callee.data as { name: string }).name ===
-                "expect"
-            ) {
-              // Extract the method call inside `expect`
-              const innerCall = calleeCallExpression.args[0];
-              const innerCallExpression = innerCall.data;
+              // Expect case
               if (
-                innerCall.type === "CallExpression" &&
-                (innerCallExpression as CallExpressionData).callee.type ===
-                  "MemberExpression"
+                calleeData.object.type === "CallExpression" &&
+                calleeCallExpression.callee.type === "Identifier" &&
+                (
+                  calleeCallExpression.callee.data as {
+                    name: string;
+                  }
+                ).name === "expect"
               ) {
-                processedStatements.push(
-                  this.sampleMethodCall(
+                // Extract the method call inside `expect`
+                const innerCall = calleeCallExpression.args[0];
+                const innerCallExpression = innerCall.data;
+                if (
+                  innerCall.type === "CallExpression" &&
+                  (innerCallExpression as CallExpressionData).callee.type ===
+                    "MemberExpression"
+                ) {
+                  const stmt = this.sampleMethodCall(
                     depth + 1,
                     innerCallExpression as CallExpressionData,
-                  ),
-                );
-              } else if (innerCall.type === "MemberExpression") {
-                processedStatements.push(
-                  this.sampleGetter(
+                  );
+                  if (stmt) processedStatements.push(stmt);
+                } else if (innerCall.type === "MemberExpression") {
+                  const stmt = this.sampleGetter(
                     depth + 1,
                     (innerCallExpression as MemberExpressionData)
                       .property as string,
                     innerCallExpression as MemberExpressionData,
-                  ),
-                );
-              } else if (innerCall.type === "Identifier") {
-                const identifierName = (innerCall.data as { name: string })
-                  .name;
-                if (this.constructorMap.has(identifierName)) {
-                  processedStatements.push(
-                    this.constructorMap.get(identifierName),
                   );
+                  if (stmt) processedStatements.push(stmt);
+                } else if (innerCall.type === "Identifier") {
+                  const identifierName = (innerCall.data as { name: string })
+                    .name;
+                  if (this.statementMap.has(identifierName)) {
+                    const mapValue = this.statementMap.get(identifierName);
+                    if (mapValue instanceof ActionStatement) {
+                      processedStatements.push(mapValue);
+                    }
+                  } else {
+                    JavaScriptLLMConverter.LOGGER.warn(
+                      `Unhandled Identifier in expect: ${identifierName}`,
+                    );
+                  }
                 } else {
-                  throw new Error(
-                    `Unhandled Identifier in expect: ${identifierName}`,
+                  JavaScriptLLMConverter.LOGGER.warn(
+                    `Unhandled expect inner call: ${JSON.stringify(innerCall)}`,
                   );
                 }
               } else {
-                console.warn(
-                  `Unhandled expect inner call: ${JSON.stringify(innerCall)}`,
-                );
+                const stmt = this.sampleMethodCall(depth, data);
+                if (stmt) processedStatements.push(stmt);
               }
+            } else if (data.callee.type === "Identifier") {
+              const stmt = this.sampleFunctionCall(depth, data);
+              if (stmt) processedStatements.push(stmt);
             } else {
-              // Regular member method call
-              processedStatements.push(this.sampleMethodCall(depth, data));
-            }
-          } else if (data.callee.type === "Identifier") {
-            processedStatements.push(this.sampleFunctionCall(depth, data));
-          } else {
-            throw new ImplementationError("Invalid CallExpression callee type");
-          }
-          break;
-        }
-        case "VariableDeclaration": {
-          const data = irStatement.data as VariableDeclarationData;
-
-          if (!data.init) {
-            throw new Error(
-              `VariableDeclaration '${data.name}' has no initializer.`,
-            );
-          }
-
-          // Use _mapArgument with the variable name
-          const initializer = this._mapArgument(depth, data.init, data.name);
-          if (!(initializer instanceof ActionStatement))
-            throw new Error(
-              `Variabledeclaration not actionstatement ${JSON.stringify(initializer)}`,
-            );
-          processedStatements.push(initializer);
-          break;
-        }
-        case "AssignmentExpression": {
-          const data = irStatement.data as AssignmentExpressionData;
-
-          // Validate the left side
-          if (data.left.type === "Identifier") {
-            const variableName = (data.left.data as { name: string }).name;
-            const rightStatement = this._mapArgument(
-              depth,
-              data.right,
-              variableName,
-            );
-            if (!(rightStatement instanceof ActionStatement))
-              throw new Error(
-                `Variabledeclaration not actionstatement ${JSON.stringify(rightStatement)}`,
+              JavaScriptLLMConverter.LOGGER.warn(
+                "Invalid CallExpression callee type",
               );
-            processedStatements.push(rightStatement);
-            // } else if (data.left.type === "MemberExpression") {
-            //   // Assignment to a property of an object
-            //   const memberExpression = this._mapArgument(depth, data.left) as MemberExpressionStatement;
-            //   const rightStatement = this._mapArgument(depth, data.right);
-            //
-            //   processedStatements.push(
-            //     this.samplePropertyAssignment(memberExpression, rightStatement),
-            //   );
-          } else {
-            throw new ImplementationError(
-              `Unsupported left type in AssignmentExpression: ${data.left.type}`,
+            }
+            break;
+          }
+          case "VariableDeclaration": {
+            const data = irStatement.data as VariableDeclarationData;
+            if (!data.init) {
+              JavaScriptLLMConverter.LOGGER.warn(
+                `VariableDeclaration '${data.name}' has no initializer.`,
+              );
+              break;
+            }
+            // Use _mapArgument with the variable name
+            const initializer = this._mapArgument(
+              depth,
+              data.init,
+              undefined,
+              undefined,
+              data.name,
+            );
+            if (initializer instanceof ActionStatement) {
+              processedStatements.push(initializer);
+            }
+            this.statementMap.set(data.name, initializer);
+            break;
+          }
+          case "AssignmentExpression": {
+            const data = irStatement.data as AssignmentExpressionData;
+            // Validate the left side
+            if (data.left.type === "Identifier") {
+              const variableName = (data.left.data as { name: string }).name;
+              const rightStatement = this._mapArgument(
+                depth,
+                data.right,
+                undefined,
+                undefined,
+                variableName,
+              );
+              if (!(rightStatement instanceof ActionStatement)) {
+                JavaScriptLLMConverter.LOGGER.warn(
+                  `AssignmentExpression right-hand side is not an action statement: ${JSON.stringify(rightStatement)}`,
+                );
+                break;
+              }
+              processedStatements.push(rightStatement);
+            } else if (data.left.type === "MemberExpression") {
+              // Assignment to a property of an object
+              const left = this._mapArgument(depth, data.left) as Getter;
+              const right = this._mapArgument(depth, data.right);
+              const value = this.sampleSetter(depth, left, right);
+              if (value) processedStatements.push(value);
+            } else {
+              JavaScriptLLMConverter.LOGGER.warn(
+                `Unsupported left type in AssignmentExpression: ${data.left.type}`,
+              );
+            }
+            break;
+          }
+          default: {
+            JavaScriptLLMConverter.LOGGER.warn(
+              `Unhandled IR statement type: ${irStatement.type}`,
+            );
+            JavaScriptLLMConverter.LOGGER.warn(
+              JSON.stringify(irStatement.data),
             );
           }
-          break;
         }
-
-        default: {
-          console.warn(`Unhandled IR statement type: ${irStatement.type}`);
-          console.warn(irStatement.data);
-        }
+      } catch (error) {
+        JavaScriptLLMConverter.LOGGER.error(
+          `Error processing IR statement: ${error}`,
+        );
+        // Discard this statement and continue with others.
       }
     }
 
@@ -671,130 +784,162 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
   private _mapArgument(
     depth: number,
     argument: IRStatement,
-    name = "anon",
     id = "id",
     typeId = "typeId",
-  ): Statement {
-    switch (argument.type) {
-      case "String": {
-        return this.sampleString(id, typeId, name, argument.data as string);
-      }
-      case "Numeric": {
-        return this.sampleNumber(id, typeId, name, argument.data as number);
-      }
-      case "Boolean": {
-        return this.sampleBool(id, typeId, name, argument.data as boolean);
-      }
-      case "Null": {
-        return this.sampleNull(id, typeId, name);
-      }
-      case "Undefined": {
-        return this.sampleUndefined(id, typeId, name);
-      }
-      case "VariableDeclaration": {
-        const data = argument.data as VariableDeclarationData;
-
-        if (!data.init) {
-          throw new Error(
-            `VariableDeclaration '${data.name}' has no initializer.`,
+    name = "anon",
+  ): Statement | undefined {
+    try {
+      switch (argument.type) {
+        case "String": {
+          return this.sampleString(id, typeId, name, argument.data as string);
+        }
+        case "Numeric": {
+          return this.sampleNumber(id, typeId, name, argument.data as number);
+        }
+        case "Boolean": {
+          return this.sampleBool(id, typeId, name, argument.data as boolean);
+        }
+        case "Null": {
+          return this.sampleNull(id, typeId, name);
+        }
+        case "Undefined": {
+          return this.sampleUndefined(id, typeId, name);
+        }
+        case "VariableDeclaration": {
+          const data = argument.data as VariableDeclarationData;
+          if (!data.init) {
+            JavaScriptLLMConverter.LOGGER.warn(
+              `VariableDeclaration '${data.name}' has no initializer.`,
+            );
+            return undefined;
+          }
+          // Pass the variable name when mapping the initializer
+          return this._mapArgument(depth, data.init, id, typeId, data.name);
+        }
+        case "CallExpression": {
+          const callData = argument.data as CallExpressionData;
+          if (callData.callee.type === "MemberExpression") {
+            return this.sampleMethodCall(depth + 1, callData);
+          } else if (callData.callee.type === "Identifier") {
+            return this.sampleFunctionCall(depth + 1, callData);
+          }
+          break;
+        }
+        case "ConstructorCall": {
+          const callData = argument.data as ConstructorCallData;
+          return this.sampleConstructorCall(depth + 1, "", callData, name);
+        }
+        case "MemberExpression": {
+          const data = argument.data as MemberExpressionData;
+          // Resolve the object
+          const objectName =
+            data.object.type === "Identifier"
+              ? (data.object.data as { name: string }).name
+              : (() => {
+                  JavaScriptLLMConverter.LOGGER.warn(
+                    `Unsupported object type in MemberExpression: ${data.object.type}`,
+                  );
+                  return "unknown";
+                })();
+          // Attempt to resolve the property dynamically
+          const resolvedValue = this._resolveConstantValue(
+            objectName,
+            data.property as string,
+          );
+          if (resolvedValue !== undefined) {
+            // Map the resolved value to the appropriate SynTest statement type
+            if (typeof resolvedValue === "number") {
+              return this.sampleNumber(id, typeId, name, resolvedValue);
+            } else if (typeof resolvedValue === "string") {
+              return this.sampleString(id, typeId, name, resolvedValue);
+            } else if (typeof resolvedValue === "boolean") {
+              return this.sampleBool(id, typeId, name, resolvedValue);
+            } else {
+              JavaScriptLLMConverter.LOGGER.warn(
+                `Unhandled constant value type: ${typeof resolvedValue}`,
+              );
+              return undefined;
+            }
+          }
+          return this.sampleGetter(depth + 1, "anon", data);
+        }
+        case "ObjectExpression": {
+          return this.sampleObject(
+            depth + 1,
+            id,
+            typeId,
+            name,
+            argument.data as ObjectExpressionData,
           );
         }
-
-        // Pass the variable name when mapping the initializer
-        return this._mapArgument(depth, data.init, data.name);
-      }
-      case "CallExpression": {
-        const callData = argument.data as CallExpressionData;
-        if (callData.callee.type === "MemberExpression") {
-          return this.sampleMethodCall(depth + 1, callData);
-        } else if (callData.callee.type === "Identifier") {
-          return this.sampleFunctionCall(depth + 1, callData);
+        case "ArrayExpression": {
+          return this.sampleArray(
+            depth + 1,
+            id,
+            typeId,
+            name,
+            argument.data as IRStatement[],
+          );
         }
-      }
-      case "ConstructorCall": {
-        const callData = argument.data as ConstructorCallData;
-        return this.sampleConstructorCall(depth + 1, "", callData, name);
-      }
-
-      case "MemberExpression": {
-        const data = argument.data as MemberExpressionData;
-
-        // Resolve the object
-        const objectName =
-          data.object.type === "Identifier"
-            ? (data.object.data as { name: string }).name
-            : (() => {
-                throw new Error(
-                  `Unsupported object type in MemberExpression: ${data.object.type}`,
-                );
-              })();
-
-        // Attempt to resolve the property dynamically
-        const resolvedValue = this._resolveConstantValue(
-          objectName,
-          data.property as string,
-        );
-
-        if (resolvedValue !== undefined) {
-          // Map the resolved value to the appropriate SynTest statement type
-          if (typeof resolvedValue === "number") {
-            return this.sampleNumber(id, typeId, name, resolvedValue);
-          } else if (typeof resolvedValue === "string") {
-            return this.sampleString(id, typeId, name, resolvedValue);
-          } else if (typeof resolvedValue === "boolean") {
-            return this.sampleBool(id, typeId, name, resolvedValue);
-          } else {
-            throw new TypeError(
-              `Unhandled constant value type: ${typeof resolvedValue}`,
-            );
+        case "Identifier": {
+          const identifierName = (argument.data as { name: string }).name;
+          // Check if the identifier refers to an object in the constructor map
+          if (this.statementMap.has(identifierName)) {
+            // TODO in case const x = "123" const y = z.foo(x), x will have the wrong varID since it is reused
+            return this.statementMap.get(identifierName);
           }
+          JavaScriptLLMConverter.LOGGER.warn(
+            `Unhandled Identifier: ${identifierName}`,
+          );
+          return undefined;
         }
-        return this.sampleGetter(depth + 1, "anon", data);
-
-        // throw new Error(
-        //   `Unsupported MemberExpression: ${JSON.stringify(data)}`,
-        // );
-      }
-      case "Identifier": {
-        const identifierName = (argument.data as { name: string }).name;
-
-        // Check if the identifier refers to an object in the constructor map
-        if (this.constructorMap.has(identifierName)) {
-          return this.constructorMap.get(identifierName);
+        default: {
+          JavaScriptLLMConverter.LOGGER.warn(
+            `Unhandled argument type: ${argument.type} ${JSON.stringify(argument.data)}`,
+          );
+          return undefined;
         }
-
-        // If not found, throw an error or create a placeholder
-        throw new Error(`Unhandled Identifier: ${identifierName}`);
       }
-
-      default: {
-        throw new Error(
-          `Unhandled argument type: ${argument.type} ${JSON.stringify(argument.data)}`,
-        );
-      }
+    } catch (error) {
+      JavaScriptLLMConverter.LOGGER.error(`Error in _mapArgument: ${error}`);
+      return undefined;
     }
+    return undefined;
   }
 
   private _extractMethodName(callee: IRStatement): string {
-    switch (callee.type) {
-      case "MemberExpression": {
-        const memberData = callee.data as MemberExpressionData;
-        if (typeof memberData.property === "string") {
-          return memberData.property;
+    try {
+      switch (callee.type) {
+        case "MemberExpression": {
+          const memberData = callee.data as MemberExpressionData;
+          if (typeof memberData.property === "string") {
+            return memberData.property;
+          }
+          JavaScriptLLMConverter.LOGGER.warn(
+            "Computed property names are not supported.",
+          );
+          return "unknown";
         }
-        throw new Error("Computed property names are not supported.");
+        case "Identifier": {
+          const identifierData = callee.data as { name: string };
+          return identifierData.name;
+        }
+        default: {
+          JavaScriptLLMConverter.LOGGER.warn(
+            `Unsupported callee type: ${callee.type}`,
+          );
+          return "unknown";
+        }
       }
-      case "Identifier": {
-        const identifierData = callee.data as { name: string };
-        return identifierData.name;
-      }
-      default: {
-        throw new Error(`Unsupported callee type: ${callee.type}`);
-      }
+    } catch (error) {
+      JavaScriptLLMConverter.LOGGER.error(
+        `Error in _extractMethodName: ${error}`,
+      );
+      return "unknown";
     }
   }
 
-  private _getClass(id?: string) {
+  private _getClass(id?: string): ClassTarget | undefined {
     if (id) {
       const result = <ClassTarget>(
         (<JavaScriptSubject>this._subject)
@@ -802,23 +947,33 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           .find((target) => (<ClassTarget>target).id === id)
       );
       if (!result) {
-        throw new ImplementationError("missing class with id: " + id);
+        JavaScriptLLMConverter.LOGGER.error("Missing class with id: " + id);
+        return undefined;
       } else if (!isExported(result)) {
-        throw new ImplementationError(
-          "class with id: " + id + "is not exported",
+        JavaScriptLLMConverter.LOGGER.error(
+          "Class with id: " + id + " is not exported",
         );
+        return undefined;
       }
       return result;
     }
-    throw new ImplementationError("no id need to pick one randomly");
+    JavaScriptLLMConverter.LOGGER.error(
+      "No id provided to _getClass; cannot pick one randomly",
+    );
+    return undefined;
   }
 
-  // eslint-disable-next-line unused-imports/no-unused-vars
   private _getExport(classId: string | undefined): Export {
-    const filePath = classId.split(":")[1];
-    return unwrapOr(this.rootContext.getExports(filePath), []).find(
-      (export_) => export_.id === classId,
-    );
+    if (!classId) return undefined;
+    const filePath = classId.split(":")[1]; // Had to change this TODO windows bug! see how they change it and copy
+    const exports = unwrapOr(this.rootContext.getExports(filePath), []);
+    const exp = exports.find((export_) => export_.id === classId);
+    if (!exp) {
+      JavaScriptLLMConverter.LOGGER.warn(
+        `Export not found for classId: ${classId}`,
+      );
+    }
+    return exp;
   }
 
   private _resolveConstantValue(
@@ -839,35 +994,9 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         PI: Math.PI,
         E: Math.E,
         LN2: Math.LN2,
-      },
-      // Add other objects and their constants here as needed
+      }, // Add other objects and their constants here as needed
     };
 
     return constantMappings[objectName]?.[property];
-  }
-
-  /**
-   * Recursively constructs a chain of property accesses from a MemberExpression.
-   * @param memberExpression The MemberExpressionData to resolve.
-   * @returns An array of strings representing the access chain.
-   */
-  private _getPropertyAccessChain(
-    memberExpression: MemberExpressionData,
-  ): string[] {
-    if (memberExpression.object.type === "Identifier") {
-      // Base case: the root of the chain
-      const rootName = (memberExpression.object.data as { name: string }).name;
-      return [rootName, memberExpression.property as string];
-    } else if (memberExpression.object.type === "MemberExpression") {
-      // Recursive case: resolve the object and append the current property
-      const parentChain = this._getPropertyAccessChain(
-        memberExpression.object.data as MemberExpressionData,
-      );
-      return [...parentChain, memberExpression.property as string];
-    } else {
-      throw new Error(
-        `Unsupported object type in MemberExpression: ${memberExpression.object.type}`,
-      );
-    }
   }
 }
