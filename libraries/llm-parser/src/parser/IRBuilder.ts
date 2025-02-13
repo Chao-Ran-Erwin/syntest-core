@@ -35,6 +35,7 @@ import { ASTParser } from "./ASTParser";
 
 export class IRBuilder {
   protected static LOGGER: Logger;
+
   constructor() {
     IRBuilder.LOGGER = getLogger(IRBuilder.name);
   }
@@ -43,9 +44,7 @@ export class IRBuilder {
     const ast = ASTParser.parse(code);
     const describeBlocks = ASTParser.extractDescribeBlocks(ast);
 
-    const describeModels = describeBlocks.map((describeBlock) =>
-      this.buildDescribeBlock(describeBlock),
-    );
+    const describeModels = describeBlocks.map((describeBlock) => this.buildDescribeBlock(describeBlock));
     let testSuite = new TestSuite(describeModels);
 
     // Postprocess to flatten chained members
@@ -55,23 +54,16 @@ export class IRBuilder {
   }
 
   buildDescribeBlock(describeBlock: {
-    name: string;
-    node: t.CallExpression;
+    name: string; node: t.CallExpression;
   }): DescribeBlock {
     const name = describeBlock.name;
 
     const itBlocks = ASTParser.extractItBlocks(describeBlock.node);
     const testCases = itBlocks.map((itBlock) => this.buildTestCase(itBlock));
 
-    const programNode = t.file(
-      t.program([t.expressionStatement(describeBlock.node)]),
-    );
-    const beforeEachBlocks = ASTParser.extractBeforeEachBlocks(
-      programNode,
-    ).flatMap((block) => block.body);
-    const beforeEachStatements = beforeEachBlocks.map((stmt) =>
-      this.buildStatement(stmt),
-    );
+    const programNode = t.file(t.program([t.expressionStatement(describeBlock.node)]));
+    const beforeEachBlocks = ASTParser.extractBeforeEachBlocks(programNode).flatMap((block) => block.body);
+    const beforeEachStatements = beforeEachBlocks.map((stmt) => this.buildStatement(stmt));
 
     return new DescribeBlock(name, testCases, beforeEachStatements);
   }
@@ -80,20 +72,14 @@ export class IRBuilder {
     const name = itBlock.name;
 
     const functionNode = itBlock.node.arguments[1];
-    if (
-      !t.isFunctionExpression(functionNode) &&
-      !t.isArrowFunctionExpression(functionNode)
-    ) {
+    if (!t.isFunctionExpression(functionNode) && !t.isArrowFunctionExpression(functionNode)) {
       throw new Error(`Expected a function in 'it' block: ${name}`);
     }
 
     const babelStatements = ASTParser.extractFunctionBody(functionNode);
     const statements = babelStatements.map((stmt) => this.buildStatement(stmt));
 
-    return new TestCase(
-      name,
-      statements.filter((x) => x !== undefined),
-    );
+    return new TestCase(name, statements.filter((x) => x !== undefined));
   }
 
   buildStatement(node: t.Statement | t.Expression): IRStatement {
@@ -134,9 +120,7 @@ export class IRBuilder {
 
     if (t.isVariableDeclaration(node)) {
       const declarations = this.parseVariableDeclaration(node);
-      return declarations.length === 1
-        ? declarations[0]
-        : new IRStatement("MultipleVariableDeclarations", declarations);
+      return declarations.length === 1 ? declarations[0] : new IRStatement("MultipleVariableDeclarations", declarations);
     }
     if (t.isUnaryExpression(node)) {
       return this.parseUnaryExpression(node);
@@ -156,101 +140,62 @@ export class IRBuilder {
   }
 
   parseNewExpression(node: t.NewExpression): IRStatement<ConstructorCallData> {
-    const callee = t.isIdentifier(node.callee)
-      ? node.callee.name
-      : t.isExpression(node.callee)
-        ? this.buildStatement(node.callee)
-        : (() => {
-            throw new Error(`Unsupported callee type: ${node.callee.type}`);
-          })();
+    const callee = t.isIdentifier(node.callee) ? node.callee.name : t.isExpression(node.callee) ? this.buildStatement(node.callee) : (() => {
+      throw new Error(`Unsupported callee type: ${node.callee.type}`);
+    })();
 
-    const arguments_ = node.arguments.map((argument) =>
-      t.isExpression(argument) ? this.buildStatement(argument) : undefined,
-    );
+    const arguments_ = node.arguments.map((argument) => t.isExpression(argument) ? this.buildStatement(argument) : undefined);
 
     return new IRStatement<ConstructorCallData>("ConstructorCall", {
-      callee,
-      args: arguments_,
+      callee, args: arguments_,
     });
   }
 
   parseCallExpression(node: t.CallExpression): IRStatement<CallExpressionData> {
-    const callee = t.isExpression(node.callee)
-      ? this.buildStatement(node.callee)
-      : undefined;
-    const arguments_ = node.arguments.map((argument) =>
-      t.isExpression(argument) ? this.buildStatement(argument) : undefined,
-    );
+    const callee = t.isExpression(node.callee) ? this.buildStatement(node.callee) : undefined;
+    const arguments_ = node.arguments.map((argument) => t.isExpression(argument) ? this.buildStatement(argument) : undefined);
 
     return new IRStatement<CallExpressionData>("CallExpression", {
-      callee,
-      args: arguments_,
+      callee, args: arguments_,
     });
   }
 
-  parseMemberExpression(
-    node: t.MemberExpression,
-  ): IRStatement<MemberExpressionData> {
+  parseMemberExpression(node: t.MemberExpression): IRStatement<MemberExpressionData> {
     const object = this.buildStatement(node.object);
 
-    const property = t.isPrivateName(node.property)
-      ? node.property.id.name
-      : t.isIdentifier(node.property) && !node.computed
-        ? node.property.name
-        : this.buildStatement(node.property as t.Expression);
+    const property = t.isPrivateName(node.property) ? node.property.id.name : t.isIdentifier(node.property) && !node.computed ? node.property.name : this.buildStatement(node.property as t.Expression);
 
     return new IRStatement<MemberExpressionData>("MemberExpression", {
-      object,
-      property,
-      computed: node.computed,
+      object, property, computed: node.computed,
     });
   }
 
-  parseAssignmentExpression(
-    node: t.AssignmentExpression,
-  ): IRStatement<AssignmentExpressionData> {
-    const left = t.isIdentifier(node.left)
-      ? new IRStatement<{ name: string }>("Identifier", {
-          name: node.left.name,
-        })
-      : t.isMemberExpression(node.left) ||
-          t.isOptionalMemberExpression?.(node.left)
-        ? this.buildStatement(node.left as t.MemberExpression)
-        : (() => {
-            throw new Error(
-              `Unsupported left-hand side in assignment: ${node.left.type}. Only simple identifiers and member expressions are currently supported.`,
-            );
-          })();
+  parseAssignmentExpression(node: t.AssignmentExpression): IRStatement<AssignmentExpressionData> {
+    const left = t.isIdentifier(node.left) ? new IRStatement<{ name: string }>("Identifier", {
+      name: node.left.name,
+    }) : t.isMemberExpression(node.left) || t.isOptionalMemberExpression?.(node.left) ? this.buildStatement(node.left as t.MemberExpression) : (() => {
+      throw new Error(`Unsupported left-hand side in assignment: ${node.left.type}. Only simple identifiers and member expressions are currently supported.`);
+    })();
 
     const right = this.buildStatement(node.right);
 
     return new IRStatement<AssignmentExpressionData>("AssignmentExpression", {
-      operator: node.operator,
-      left,
-      right,
+      operator: node.operator, left, right,
     });
   }
 
-  parseVariableDeclaration(
-    node: t.VariableDeclaration,
-  ): IRStatement<VariableDeclarationData>[] {
+  parseVariableDeclaration(node: t.VariableDeclaration): IRStatement<VariableDeclarationData>[] {
     return node.declarations.map((declarator) => {
       if (!t.isIdentifier(declarator.id)) {
-        throw new Error(
-          `Unsupported variable declarator id type: ${declarator.id.type}. Only identifiers are supported.`,
-        );
+        throw new Error(`Unsupported variable declarator id type: ${declarator.id.type}. Only identifiers are supported.`);
       }
 
       const variableName = declarator.id.name;
 
-      const initStatement = declarator.init
-        ? this.buildStatement(declarator.init)
-        : undefined;
+      const initStatement = declarator.init ? this.buildStatement(declarator.init) : undefined;
 
       return new IRStatement<VariableDeclarationData>("VariableDeclaration", {
-        name: variableName,
-        kind: node.kind,
-        init: initStatement,
+        name: variableName, kind: node.kind, init: initStatement,
       });
     });
   }
@@ -264,10 +209,7 @@ export class IRBuilder {
     const operand = this.buildStatement(node.argument);
 
     // Precompute the result
-    const result = this._evaluateUnaryExpression(
-      node.operator,
-      operand.data as number | boolean,
-    );
+    const result = this._evaluateUnaryExpression(node.operator, operand.data as number | boolean);
 
     // Return an IRStatement with the precomputed value
     if (typeof result === "number") {
@@ -275,36 +217,22 @@ export class IRBuilder {
     } else if (typeof result === "boolean") {
       return new IRStatement<boolean>("Boolean", result);
     } else {
-      throw new TypeError(
-        `Unsupported UnaryExpression result type: ${typeof result}`,
-      );
+      throw new TypeError(`Unsupported UnaryExpression result type: ${typeof result}`);
     }
   }
 
-  _evaluateUnaryExpression(
-    operator: string,
-    operandValue: number | boolean,
-  ): number | boolean {
+  _evaluateUnaryExpression(operator: string, operandValue: number | boolean): number | boolean {
     switch (operator) {
       case "-": {
-        if (typeof operandValue !== "number")
-          throw new Error(
-            `Operator '-' expects a number, got: ${typeof operandValue}`,
-          );
+        if (typeof operandValue !== "number") throw new Error(`Operator '-' expects a number, got: ${typeof operandValue}`);
         return -operandValue;
       }
       case "+": {
-        if (typeof operandValue !== "number")
-          throw new Error(
-            `Operator '+' expects a number, got: ${typeof operandValue}`,
-          );
+        if (typeof operandValue !== "number") throw new Error(`Operator '+' expects a number, got: ${typeof operandValue}`);
         return +operandValue;
       }
       case "!": {
-        if (typeof operandValue !== "boolean")
-          throw new Error(
-            `Operator '!' expects a boolean, got: ${typeof operandValue}`,
-          );
+        if (typeof operandValue !== "boolean") throw new Error(`Operator '!' expects a boolean, got: ${typeof operandValue}`);
         return !operandValue;
       }
       default: {
@@ -315,9 +243,7 @@ export class IRBuilder {
 
   injectBeforeEachIntoTestCases(irTestSuite: TestSuite): TestSuite {
     // Clone the input to avoid mutating the original
-    const transformedTestSuite: TestSuite = <TestSuite>(
-      JSON.parse(JSON.stringify(irTestSuite))
-    );
+    const transformedTestSuite: TestSuite = <TestSuite>(JSON.parse(JSON.stringify(irTestSuite)));
 
     for (const describeBlock of transformedTestSuite.describeBlocks) {
       const beforeEachBodies = describeBlock.beforeEachBodies;
@@ -336,34 +262,20 @@ export class IRBuilder {
     return transformedTestSuite;
   }
 
-  parseObjectExpression(
-    node: t.ObjectExpression,
-  ): IRStatement<ObjectExpressionData> {
+  parseObjectExpression(node: t.ObjectExpression): IRStatement<ObjectExpressionData> {
     const properties: Record<string, IRStatement> = {};
 
     for (const property of node.properties) {
       if (t.isObjectProperty(property)) {
-        const key = t.isIdentifier(property.key)
-          ? property.key.name
-          : t.isStringLiteral(property.key)
-            ? property.key.value
-            : (() => {
-                throw new Error(
-                  `Unsupported object property key type: ${property.key.type}`,
-                );
-              })();
+        const key = t.isIdentifier(property.key) ? property.key.name : t.isStringLiteral(property.key) ? property.key.value : (() => {
+          throw new Error(`Unsupported object property key type: ${property.key.type}`);
+        })();
 
-        properties[key] = t.isExpression(property.value)
-          ? this.buildStatement(property.value)
-          : (() => {
-              throw new Error(
-                `Unsupported object property value type: ${property.value.type}`,
-              );
-            })();
+        properties[key] = t.isExpression(property.value) ? this.buildStatement(property.value) : (() => {
+          throw new Error(`Unsupported object property value type: ${property.value.type}`);
+        })();
       } else if (t.isSpreadElement(property)) {
-        throw new Error(
-          `Spread elements in object expressions are not yet supported: ${property.type}`,
-        );
+        throw new Error(`Spread elements in object expressions are not yet supported: ${property.type}`);
       } else {
         throw new Error(`Unsupported object property type: ${property.type}`);
       }
@@ -379,9 +291,7 @@ export class IRBuilder {
 
     for (const element of node.elements) {
       if (!element) {
-        throw new Error(
-          "Null or undefined elements in ArrayExpression are not supported.",
-        );
+        throw new Error("Null or undefined elements in ArrayExpression are not supported.");
       }
 
       if (t.isExpression(element)) {
@@ -400,9 +310,7 @@ export class IRBuilder {
       if (t.isIdentifier(parameter)) {
         return new IRStatement("Identifier", { name: parameter.name });
       }
-      throw new Error(
-        `Unsupported parameter type in arrow function: ${parameter.type}`,
-      );
+      throw new Error(`Unsupported parameter type in arrow function: ${parameter.type}`);
     });
 
     // Process body
@@ -416,14 +324,11 @@ export class IRBuilder {
     }
 
     return new IRStatement("ArrowFunction", {
-      params: parameters,
-      body,
-      isAsync: node.async,
+      params: parameters, body, isAsync: node.async,
     });
   }
-  public postProcessFlattenChainedMemberExpressions(
-    testSuite: TestSuite,
-  ): TestSuite {
+
+  public postProcessFlattenChainedMemberExpressions(testSuite: TestSuite): TestSuite {
     for (const describeBlock of testSuite.describeBlocks) {
       for (const testCase of describeBlock.testCases) {
         testCase.statements = this._flattenStatements(testCase.statements);
@@ -444,89 +349,84 @@ export class IRBuilder {
   }
 
   private _flattenIR(stmt: IRStatement): IRStatement[] {
-    if (stmt.type === "MemberExpression") {
-      const memberData = stmt.data as MemberExpressionData;
-      // Flatten the object if it's a MemberExpression
-      const objectFlattened = this._flattenIR(memberData.object);
-      const finalObject = objectFlattened.at(-1);
+  if (stmt.type === "MemberExpression") {
+    const memberData = stmt.data as MemberExpressionData;
+    // Flatten the object if it's a MemberExpression or CallExpression
+    const objectFlattened = this._flattenIR(memberData.object);
+    const finalObject = objectFlattened.at(-1);
 
-      // Generate temp variable for the object if it was flattened
-      if (objectFlattened.length > 1) {
-        const temporaryVariable = `tmp${Math.floor(Math.random() * 10_000)}`;
-        const variableDecl = new IRStatement("VariableDeclaration", {
-          name: temporaryVariable,
-          kind: "const",
-          init: finalObject,
-        });
-        const newMember = new IRStatement("MemberExpression", {
-          object: new IRStatement("Identifier", { name: temporaryVariable }),
-          property: memberData.property,
-          computed: memberData.computed,
-        });
-        return [
-          ...objectFlattened.slice(0, -1),
-          variableDecl,
-          ...this._flattenIR(newMember),
-        ];
-      }
-
-      // Check if the current MemberExpression's object is still a MemberExpression
-      if (finalObject.type === "MemberExpression") {
-        const innerFlattened = this._flattenIR(finalObject);
-        const finalInner = innerFlattened.at(-1);
-        const temporaryVariable = `tmp${Math.floor(Math.random() * 10_000)}`;
-        const variableDecl = new IRStatement("VariableDeclaration", {
-          name: temporaryVariable,
-          kind: "const",
-          init: finalInner,
-        });
-        const newMember = new IRStatement("MemberExpression", {
-          object: new IRStatement("Identifier", { name: temporaryVariable }),
-          property: memberData.property,
-          computed: memberData.computed,
-        });
-        return [
-          ...innerFlattened.slice(0, -1),
-          variableDecl,
-          ...this._flattenIR(newMember),
-        ];
-      }
-
-      return [stmt];
-    } else if (stmt.type === "CallExpression") {
-      const callData = stmt.data as CallExpressionData;
-
-      // Flatten the callee
-      const calleeFlattened = this._flattenIR(callData.callee);
-      const flattenedCallee = calleeFlattened.at(-1);
-
-      // Flatten each argument
-      const argumentsFlattened: IRStatement[][] = [];
-      const newArguments: IRStatement[] = [];
-      for (const argument of callData.args) {
-        const argumentFlattened = this._flattenIR(argument);
-        argumentsFlattened.push(argumentFlattened);
-        newArguments.push(argumentFlattened.at(-1));
-      }
-
-      // Collect all temporary variables from callee and arguments
-      const allStatements: IRStatement[] = [];
-      allStatements.push(...calleeFlattened.slice(0, -1));
-      for (const argument of argumentsFlattened) {
-        allStatements.push(...argument.slice(0, -1));
-      }
-
-      // Reconstruct the CallExpression with flattened components
-      const newCall = new IRStatement("CallExpression", {
-        callee: flattenedCallee,
-        args: newArguments,
+    // If we have more than one statement, or if the final object is a CallExpression,
+    // create a temporary variable for it.
+    if (objectFlattened.length > 1 || finalObject.type === "CallExpression") {
+      const temporaryVariable = `tmp${Math.floor(Math.random() * 10_000)}`;
+      const variableDecl = new IRStatement("VariableDeclaration", {
+        name: temporaryVariable,
+        kind: "const",
+        init: finalObject,
       });
-      allStatements.push(newCall);
-
-      return allStatements;
+      const newMember = new IRStatement("MemberExpression", {
+        object: new IRStatement("Identifier", { name: temporaryVariable }),
+        property: memberData.property,
+        computed: memberData.computed,
+      });
+      return [...objectFlattened.slice(0, -1), variableDecl, ...this._flattenIR(newMember)];
     }
 
-    // Recursively process other expression types if needed
+    // Also check if the current MemberExpression's object is still a MemberExpression
+    if (finalObject.type === "MemberExpression") {
+      const innerFlattened = this._flattenIR(finalObject);
+      const finalInner = innerFlattened.at(-1);
+      const temporaryVariable = `tmp${Math.floor(Math.random() * 10_000)}`;
+      const variableDecl = new IRStatement("VariableDeclaration", {
+        name: temporaryVariable,
+        kind: "const",
+        init: finalInner,
+      });
+      const newMember = new IRStatement("MemberExpression", {
+        object: new IRStatement("Identifier", { name: temporaryVariable }),
+        property: memberData.property,
+        computed: memberData.computed,
+      });
+      return [...innerFlattened.slice(0, -1), variableDecl, ...this._flattenIR(newMember)];
+    }
+
     return [stmt];
+  } else if (stmt.type === "CallExpression") {
+    const callData = stmt.data as CallExpressionData;
+
+    // Flatten the callee
+    const calleeFlattened = this._flattenIR(callData.callee);
+    const flattenedCallee = calleeFlattened.at(-1);
+
+    // Flatten each argument
+    const argumentsFlattened: IRStatement[][] = [];
+    const newArguments: IRStatement[] = [];
+    for (const argument of callData.args) {
+      const argumentFlattened = this._flattenIR(argument);
+      argumentsFlattened.push(argumentFlattened);
+      newArguments.push(argumentFlattened.at(-1));
+    }
+
+    // Collect all temporary variables from callee and arguments
+    const allStatements: IRStatement[] = [];
+    allStatements.push(...calleeFlattened.slice(0, -1));
+    for (const argument of argumentsFlattened) {
+      allStatements.push(...argument.slice(0, -1));
+    }
+
+    // Reconstruct the CallExpression with flattened components
+    const newCall = new IRStatement("CallExpression", {
+      callee: flattenedCallee, args: newArguments,
+    });
+    allStatements.push(newCall);
+
+    return allStatements;
   }
+
+  // Recursively process other expression types if needed
+  return [stmt];
+}
+
+
+
 }

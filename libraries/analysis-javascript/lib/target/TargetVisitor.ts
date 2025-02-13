@@ -825,16 +825,24 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
 
         // Create a dedicated PropertyTarget
         const propertyId = this._getNodeId(classBodyAttribute);
-        const propertyTarget: PropertyTarget = {
-          id: propertyId,
-          typeId: propertyId,
-          name: propertyName,
-          type: TargetType.PROPERTY,
-          classId: classId,
-          isStatic: classBodyAttribute.node.static || false,
-        };
+        // If propertyTarget doesn't already exist
+        if (!this._subTargets.some(
+          (target) =>
+            target.type === TargetType.PROPERTY &&
+            (target as PropertyTarget).name === propertyName &&
+            (target as PropertyTarget).classId === classId,
+        )) {
+          const propertyTarget: PropertyTarget = {
+            id: propertyId,
+            typeId: propertyId,
+            name: propertyName,
+            type: TargetType.PROPERTY,
+            classId: classId,
+            isStatic: classBodyAttribute.node.static || false,
+          };
 
-        this._subTargets.push(propertyTarget);
+          this._subTargets.push(propertyTarget);
+        }
       } else {
         this._logOrFail(
           unsupportedSyntax(
@@ -844,6 +852,7 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
         );
       }
     }
+    this._extractPropertiesFromConstructor(path, classId);
   }
 
   get subTargets(): SubTarget[] {
@@ -869,11 +878,11 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
               t.name === subTarget.name &&
               (t.type === TargetType.METHOD
                 ? (<MethodTarget>t).methodType ===
-                    (<MethodTarget>subTarget).methodType &&
-                  (<MethodTarget>t).isStatic ===
-                    (<MethodTarget>subTarget).isStatic &&
-                  (<MethodTarget>t).classId ===
-                    (<MethodTarget>subTarget).classId
+                (<MethodTarget>subTarget).methodType &&
+                (<MethodTarget>t).isStatic ===
+                (<MethodTarget>subTarget).isStatic &&
+                (<MethodTarget>t).classId ===
+                (<MethodTarget>subTarget).classId
                 : true)
             );
           })
@@ -881,4 +890,48 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
       })
       .reverse();
   }
+
+  private _extractPropertiesFromConstructor(
+    classPath: NodePath<t.Class>,
+    classId: string,
+  ): void {
+    // Find the constructor method in the class body.
+    const constructorMethod = classPath.get("body.body").find((method) =>
+      method.isClassMethod() && method.node.kind === "constructor",
+    );
+    if (!constructorMethod) return;
+
+    // Traverse the constructor's body.
+    constructorMethod.traverse({
+      AssignmentExpression: (path: NodePath<t.AssignmentExpression>) => {
+        // Check if the left-hand side is a member expression of 'this'
+        if (
+          t.isMemberExpression(path.node.left) &&
+          t.isThisExpression(path.node.left.object) &&
+          t.isIdentifier(path.node.left.property)
+        ) {
+          const propertyName = path.node.left.property.name;
+          // Check if we already have a target for this property.
+          if (!this._subTargets.some(
+            (target) =>
+              target.type === TargetType.PROPERTY &&
+              (target as PropertyTarget).name === propertyName &&
+              (target as PropertyTarget).classId === classId,
+          )) {
+            // Create a new PropertyTarget.
+            const propertyTarget: PropertyTarget = {
+              id: this._getNodeId(path.node.left), // Or use a generated id
+              typeId: this._getNodeId(path.node.left),
+              name: propertyName,
+              type: TargetType.PROPERTY,
+              classId: classId,
+              isStatic: false,
+            };
+            this._subTargets.push(propertyTarget);
+          }
+        }
+      },
+    });
+  }
+
 }

@@ -33,7 +33,7 @@ import {
 } from "@syntest/analysis-javascript";
 import { ControlFlowProgram } from "@syntest/cfg";
 import { isFailure, unwrap } from "@syntest/diagnostics";
-import { initializePseudoRandomNumberGenerator } from "@syntest/prng";
+// import { initializePseudoRandomNumberGenerator } from "@syntest/prng";
 import {
   ApproachLevelCalculator,
   extractBranchObjectivesFromProgram,
@@ -49,20 +49,20 @@ import { JavaScriptTestCase } from "../lib/testcase/JavaScriptTestCase";
 import { JavaScriptRandomSampler } from "../lib/testcase/sampling/JavaScriptRandomSampler";
 
 describe("sampler info", () => {
-  beforeEach(() => {
-    initializePseudoRandomNumberGenerator("0");
-  });
+  // beforeEach(() => {
+  //   initializePseudoRandomNumberGenerator("0");
+  // });
   it("run sampler", () => {
-    // const rootPath: string =
-    //   "..\\search-javascript\\test\\benchmark";
-    // const shoppingCartPath =  "..\\search-javascript\\test\\benchmark\\ShoppingCart.js";
-    // Define root path
+
     const rootPath =
-      "C:\\Users\\erwin\\PycharmProjects\\syntest-framework\\libraries\\search-javascript\\test\\benchmark";
-    const shoppingCartPath = path.resolve(rootPath, "ShoppingCart.js");
+      "./test/benchmark";
+    const testPath = path.resolve(rootPath, "" +
+      "javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js"
+      // "moment/src/lib/duration/create.js"
+    );
 
     const set: Set<string> = new Set<string>();
-    set.add(shoppingCartPath);
+    set.add(testPath);
     const rootContext = new RootContext(
       rootPath,
       set,
@@ -76,17 +76,17 @@ describe("sampler info", () => {
       new InferenceTypeModelFactory(),
       new ConstantPoolFactory(false),
     );
-    const result = rootContext.getAbstractSyntaxTree(shoppingCartPath);
+    const result = rootContext.getAbstractSyntaxTree(testPath);
     if (isFailure(result)) throw result.error;
     const ast = unwrap(result);
 
     const targetMapGenerator = new TargetFactory(false);
-    const targetResult = targetMapGenerator.extract(shoppingCartPath, ast);
+    const targetResult = targetMapGenerator.extract(testPath, ast);
     if (isFailure(targetResult)) throw targetResult.error;
     const target = unwrap(targetResult);
 
     const cfpResult = new ControlFlowGraphFactory(false).convert(
-      shoppingCartPath,
+      testPath,
       ast,
     );
     if (isFailure(cfpResult)) throw cfpResult.error;
@@ -124,7 +124,7 @@ describe("sampler info", () => {
 
     const constantPoolFactory = new ConstantPoolFactory(false);
     const targetConstantPool = constantPoolFactory.extract(
-      shoppingCartPath,
+      testPath,
       ast,
     );
     const contextConstantPool = new ConstantPool();
@@ -157,6 +157,7 @@ describe("sampler info", () => {
     );
 
     sampler.rootContext = rootContext;
+
     const testCase = sampler.sample();
     const decoder = new JavaScriptDecoder(rootPath);
     console.log(JSON.stringify(testCase));

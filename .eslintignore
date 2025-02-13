@@ -21,5 +21,6 @@
 **/instrumentation/Visitor.ts
 **/instrumentation/source-coverage.ts
 
-**/benchmark/*.js
-**/self-refine-tests/*.js
+
+/libraries/search-javascript/test/LLM-tests/*.js
+/libraries/search-javascript/test/benchmark

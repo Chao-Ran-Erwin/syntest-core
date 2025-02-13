@@ -80,7 +80,7 @@ export class ASTParser {
         const callee = path.node.callee;
 
         // Check if the function is `it`
-        if (t.isIdentifier(callee, { name: "it" })) {
+        if (t.isIdentifier(callee, { name: "it" }) || t.isIdentifier(callee, { name: "test"})) {
           const arguments_ = path.node.arguments;
 
           if (arguments_.length > 0 && t.isStringLiteral(arguments_[0])) {
