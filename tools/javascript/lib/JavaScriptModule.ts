@@ -25,6 +25,7 @@ import yargs = require("yargs");
 
 import { getTestCommand } from "./commands/test";
 import { TreeCrossoverPlugin } from "./plugins/crossover/TreeCrossoverPlugin";
+import { LLMConverterPlugin } from "./plugins/sampler/LLMConverterPlugin";
 import { RandomSamplerPlugin } from "./plugins/sampler/RandomSamplerPlugin";
 
 export default class JavaScriptModule extends TestingToolModule {
@@ -76,6 +77,7 @@ export default class JavaScriptModule extends TestingToolModule {
 
     moduleManager.registerPlugin(this, new TreeCrossoverPlugin());
     moduleManager.registerPlugin(this, new RandomSamplerPlugin());
+    moduleManager.registerPlugin(this, new LLMConverterPlugin());
 
     super.register(
       moduleManager,

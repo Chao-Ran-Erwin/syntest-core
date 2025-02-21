@@ -35,7 +35,8 @@ import {
 import { FileSelector, TargetSelector } from "@syntest/base-language";
 import { ControlFlowProgram } from "@syntest/cfg";
 import { isFailure, unwrap } from "@syntest/diagnostics";
-import { initializePseudoRandomNumberGenerator } from "@syntest/prng";
+import { IRBuilder } from "@syntest/llmparser/src/parser/IRBuilder";
+// import { initializePseudoRandomNumberGenerator } from "@syntest/prng";
 import {
   ApproachLevelCalculator,
   extractBranchObjectivesFromProgram,
@@ -44,7 +45,6 @@ import {
   ObjectiveFunction,
 } from "@syntest/search";
 import * as chai from "chai";
-import { IRBuilder } from "llmparser/src/parser/IRBuilder";
 
 import { BranchDistanceCalculator } from "../lib/criterion/BranchDistance";
 import { JavaScriptSubject } from "../lib/search/JavaScriptSubject";
@@ -52,20 +52,17 @@ import { JavaScriptDecoder } from "../lib/testbuilding/JavaScriptDecoder";
 import { JavaScriptTestCase } from "../lib/testcase/JavaScriptTestCase";
 import { JavaScriptLLMConverter } from "../lib/testcase/sampling/JavaScriptLLMConverter";
 
-
-before(() => {
-  // Initialize the pseudo-random number generator (required for some parts of the code)
-  initializePseudoRandomNumberGenerator("0");
-
-});
+// initializePseudoRandomNumberGenerator("0")
 const expect = chai.expect;
 
 // Helper function to load the LLM-generated test case file
-const llmTestCaseFolder = "LLM-tests/1"
+const llmTestCaseFolder = "LLM-tests";
 function findTestCase(rootPath: string, className: string): string {
   const testCaseDirectory = path.join(rootPath, "..", llmTestCaseFolder);
   const files = fs.readdirSync(testCaseDirectory);
-  const testCaseFile = files.find(file => file.endsWith(`${className}.test.js`));
+  const testCaseFile = files.find((file) =>
+    file.endsWith(`${className}.test.js`),
+  );
 
   if (!testCaseFile) {
     throw new Error(`Test case for ${className} not found`);
@@ -76,29 +73,32 @@ function findTestCase(rootPath: string, className: string): string {
 
 // Define the file paths to use as “include” patterns for target files
 const targetFilesPaths: string[] = [
-  "./test/benchmark/javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js",
-  "./test/benchmark/javascript-algorithms/src/algorithms/cryptography/hill-cipher/hillCipher.js",
-  "./test/benchmark/javascript-algorithms/src/algorithms/math/liu-hui/liuHui.js",
+  // "./test/benchmark/javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js",
+  // "./test/benchmark/javascript-algorithms/src/algorithms/cryptography/hill-cipher/hillCipher.js",
+  // "./test/benchmark/javascript-algorithms/src/algorithms/math/liu-hui/liuHui.js",
   "./test/benchmark/javascript-algorithms/src/data-structures/linked-list/LinkedList.js",
-  "./test/benchmark/javascript-algorithms/src/data-structures/disjoint-set/DisjointSet.js",
-  "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/Knapsack.js",
-  "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/KnapsackItem.js",
-  "./test/benchmark/javascript-algorithms/src/data-structures/hash-table/HashTable.js",
-  "./test/benchmark/javascript-algorithms/src/algorithms/graph/strongly-connected-components/stronglyConnectedComponents.js",
-  "./test/benchmark/javascript-algorithms/src/data-structures/tree/fenwick-tree/FenwickTree.js",
-  "./test/benchmark/javascript-algorithms/src/data-structures/trie/TrieNode.js",
-  "./test/ShoppingCart.js",
-  "./test/benchmark/express/lib/view.js",
-  "./test/benchmark/express/lib/router/layer.js",
-  "./test/benchmark/moment/src/lib/create/from-anything.js",
-  "./test/benchmark/moment/src/lib/moment/compare.js",
-  "./test/benchmark/moment/src/lib/duration/create.js",
-  "./test/benchmark/moment/src/lib/duration/bubble.js",
-  "./test/benchmark/moment/src/lib/moment/min-max.js",
+  // "./test/benchmark/javascript-algorithms/src/data-structures/disjoint-set/DisjointSet.js",
+  // "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/Knapsack.js",
+  // "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/KnapsackItem.js",
+  // "./test/benchmark/javascript-algorithms/src/data-structures/hash-table/HashTable.js",
+  // "./test/benchmark/javascript-algorithms/src/algorithms/graph/strongly-connected-components/stronglyConnectedComponents.js",
+  // "./test/benchmark/javascript-algorithms/src/data-structures/tree/fenwick-tree/FenwickTree.js",
+  // "./test/benchmark/javascript-algorithms/src/data-structures/trie/TrieNode.js",
+  // "./test/ShoppingCart.js",
+  // "./test/benchmark/express/lib/view.js",
+  // "./test/benchmark/express/lib/router/layer.js",
+  // "./test/benchmark/moment/src/lib/create/from-anything.js",
+  // "./test/benchmark/moment/src/lib/moment/compare.js",
+  // "./test/benchmark/moment/src/lib/duration/create.js",
+  // "./test/benchmark/moment/src/lib/duration/bubble.js",
+  // "./test/benchmark/moment/src/lib/moment/min-max.js",
 ];
 
 // In this example we use the same file list for analysis files
-const analysisFilesPaths: string[] = [...targetFilesPaths];
+const analysisFilesPaths: string[] = [
+  ...targetFilesPaths,
+  "./benchmark/javascript-algorithms/src/**/*.js",
+];
 
 // (Optional) Create a FileSelector instance to load file paths that will be passed into the RootContext
 const fileSelector = new FileSelector();
@@ -146,10 +146,12 @@ describe("JavaScriptLLMConverter Test", () => {
       const testSuite = irBuilder.buildIR(testCaseCode);
 
       // Post-process the test suite
-      const temporaryTestSuite = irBuilder.injectBeforeEachIntoTestCases(testSuite);
-      const finalTestSuite = irBuilder.postProcessFlattenChainedMemberExpressions(
-        temporaryTestSuite,
-      );
+      const temporaryTestSuite =
+        irBuilder.injectBeforeEachIntoTestCases(testSuite);
+      const finalTestSuite =
+        irBuilder.postProcessFlattenChainedMemberExpressions(
+          temporaryTestSuite,
+        );
 
       // Retrieve the AST from the target file
       const result = rootContext.getAbstractSyntaxTree(targetContext.path);
@@ -172,16 +174,23 @@ describe("JavaScriptLLMConverter Test", () => {
         extractBranchObjectivesFromProgram<JavaScriptTestCase>(
           cfp,
           new ApproachLevelCalculator(),
-          new BranchDistanceCalculator(false, "abcdefghijklmnopqrstuvwxyz1234567890"),
+          new BranchDistanceCalculator(
+            false,
+            "abcdefghijklmnopqrstuvwxyz1234567890",
+          ),
           functionObjectives,
         );
 
-      const pathObjectives = extractPathObjectivesFromProgram<JavaScriptTestCase>(
-        cfp,
-        new ApproachLevelCalculator(),
-        new BranchDistanceCalculator(false, "abcdefghijklmnopqrstuvwxyz1234567890"),
-        functionObjectives,
-      );
+      const pathObjectives =
+        extractPathObjectivesFromProgram<JavaScriptTestCase>(
+          cfp,
+          new ApproachLevelCalculator(),
+          new BranchDistanceCalculator(
+            false,
+            "abcdefghijklmnopqrstuvwxyz1234567890",
+          ),
+          functionObjectives,
+        );
 
       const objectives: ObjectiveFunction<JavaScriptTestCase>[] = [];
       objectives.push(
@@ -195,7 +204,10 @@ describe("JavaScriptLLMConverter Test", () => {
 
       // Manage the constant pools required by the converter
       const constantPoolFactory = new ConstantPoolFactory(false);
-      const targetConstantPool = constantPoolFactory.extract(targetContext.path, ast);
+      const targetConstantPool = constantPoolFactory.extract(
+        targetContext.path,
+        ast,
+      );
       const contextConstantPool = new ConstantPool();
       const dynamicConstantPool = new ConstantPool();
       const constantPoolManager = new ConstantPoolManager(

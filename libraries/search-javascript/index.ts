@@ -56,3 +56,5 @@ export * from "./lib/testcase/statements/action/ConstantObject";
 export * from "./lib/testcase/statements/Statement";
 
 export * from "./lib/testcase/JavaScriptTestCase";
+
+export * from "./lib/testcase/sampling/JavaScriptLLMConverter";

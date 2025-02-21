@@ -53,6 +53,7 @@ import {
 } from "@syntest/cli-graphics";
 import { IllegalArgumentError, isFailure, unwrap } from "@syntest/diagnostics";
 import { Instrumenter } from "@syntest/instrumentation-javascript";
+import { IRBuilder } from "@syntest/llmparser";
 import { getLogger, Logger } from "@syntest/logging";
 import { MetricManager } from "@syntest/metric";
 import { ModuleManager } from "@syntest/module";
@@ -83,6 +84,8 @@ import {
   JavaScriptTestCase,
   JavaScriptTestCaseSampler,
 } from "@syntest/search-javascript";
+import { JavaScriptLLMConverter } from "@syntest/search-javascript/dist/lib/testcase/sampling/JavaScriptLLMConverter";
+import { LLMCommunication } from "@syntest/search-javascript/dist/lib/testcase/sampling/LLMCommunication";
 import { StorageManager } from "@syntest/storage";
 
 import { TestCommandOptions } from "./commands/test";
@@ -799,29 +802,74 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
       throw constantPoolManagerResult.error;
 
     const constantPoolManager = unwrap(constantPoolManagerResult);
+    let sampler: JavaScriptTestCaseSampler;
+    if (this.arguments_.sampler === "javascript-LLM-converter") {
+      // method to get llm test suite
+      const llmCommunication = new LLMCommunication();
+      // load existing test for now instead of making new ones
+      const testCaseCode = llmCommunication.loadTestSuite(
+        "C:\\Users\\erwin\\PycharmProjects\\syntest-project\\syntest-framework\\node_modules\\@syntest\\search-javascript\\test\\LLM-tests",
+        target.name.replace(".js", ""),
+      );
+      const irBuilder = new IRBuilder();
+      const testSuite = irBuilder.buildIR(testCaseCode);
 
-    const sampler = new JavaScriptRandomSampler(
-      currentSubject,
-      constantPoolManager,
-      this.arguments_.constantPool,
-      this.arguments_.constantPoolProbability,
-      this.arguments_.typePool,
-      this.arguments_.typePoolProbability,
-      this.arguments_.statementPool,
-      this.arguments_.statementPoolProbability,
+      // Post-process the test suite
+      const temporaryTestSuite =
+        irBuilder.injectBeforeEachIntoTestCases(testSuite);
+      const finalTestSuite =
+        irBuilder.postProcessFlattenChainedMemberExpressions(
+          temporaryTestSuite,
+        );
+      // sampler =<JavaScriptLLMConverter>(<LLMConverterPlugin>this.moduleManager.getPlugin(PluginType.Sampler, this.arguments_.sampler))
+      //   .createSamplerOperator(<SamplerOptions<JavaScriptTestCase>>(<unknown>currentSubject), finalTestSuite)
+      sampler = new JavaScriptLLMConverter(
+        currentSubject,
+        constantPoolManager,
+        this.arguments_.constantPool,
+        this.arguments_.constantPoolProbability,
+        this.arguments_.typePool,
+        this.arguments_.typePoolProbability,
+        this.arguments_.statementPool,
+        this.arguments_.statementPoolProbability,
 
-      this.arguments_.typeInferenceMode,
-      this.arguments_.randomTypeProbability,
-      this.arguments_.incorporateExecutionInformation,
-      this.arguments_.maxActionStatements,
-      this.arguments_.stringAlphabet,
-      this.arguments_.stringMaxLength,
-      this.arguments_.deltaMutationProbability,
-      this.arguments_.exploreIllegalValues,
-      this.arguments_.addRemoveArgumentProbability,
-      this.arguments_.addArgumentProbability,
-      this.arguments_.removeArgumentProbability,
-    );
+        this.arguments_.typeInferenceMode,
+        this.arguments_.randomTypeProbability,
+        this.arguments_.incorporateExecutionInformation,
+        this.arguments_.maxActionStatements,
+        this.arguments_.stringAlphabet,
+        this.arguments_.stringMaxLength,
+        this.arguments_.deltaMutationProbability,
+        this.arguments_.exploreIllegalValues,
+        this.arguments_.addRemoveArgumentProbability,
+        this.arguments_.addArgumentProbability,
+        this.arguments_.removeArgumentProbability,
+        finalTestSuite,
+      );
+    } else {
+      sampler = new JavaScriptRandomSampler(
+        currentSubject,
+        constantPoolManager,
+        this.arguments_.constantPool,
+        this.arguments_.constantPoolProbability,
+        this.arguments_.typePool,
+        this.arguments_.typePoolProbability,
+        this.arguments_.statementPool,
+        this.arguments_.statementPoolProbability,
+
+        this.arguments_.typeInferenceMode,
+        this.arguments_.randomTypeProbability,
+        this.arguments_.incorporateExecutionInformation,
+        this.arguments_.maxActionStatements,
+        this.arguments_.stringAlphabet,
+        this.arguments_.stringMaxLength,
+        this.arguments_.deltaMutationProbability,
+        this.arguments_.exploreIllegalValues,
+        this.arguments_.addRemoveArgumentProbability,
+        this.arguments_.addArgumentProbability,
+        this.arguments_.removeArgumentProbability,
+      );
+    }
     sampler.rootContext = rootContext;
 
     const secondaryObjectives = this.arguments_.secondaryObjectives.map(
