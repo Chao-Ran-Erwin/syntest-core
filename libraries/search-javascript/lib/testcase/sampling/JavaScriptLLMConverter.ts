@@ -43,6 +43,7 @@ import { JavaScriptSubject } from "../../search/JavaScriptSubject";
 import { JavaScriptTestCase } from "../JavaScriptTestCase";
 import { StatementPool } from "../StatementPool";
 import { ActionStatement } from "../statements/action/ActionStatement";
+import { ClassActionStatement } from "../statements/action/ClassActionStatement";
 import { ConstantObject } from "../statements/action/ConstantObject";
 import { ConstructorCall } from "../statements/action/ConstructorCall";
 import { FunctionCall } from "../statements/action/FunctionCall";
@@ -100,7 +101,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
       constantPoolProbability,
       typePoolEnabled,
       typePoolProbability,
-      false,
+      statementPoolEnabled,
       statementPoolProbability,
       typeInferenceMode,
       randomTypeProbability,
@@ -117,6 +118,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     this.irTestSuite = irTestSuite;
     this.statementMap = new Map<string, Statement>(); // Uses variable name as key, assume LLM's don't reuse variable names
     JavaScriptLLMConverter.LOGGER = getLogger(JavaScriptLLMConverter.name);
+    // Use random sampler for filling initial population, and mutation
     this.randomSampler = new JavaScriptRandomSampler(
       subject,
       constantPoolManager,
@@ -124,7 +126,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
       constantPoolProbability,
       typePoolEnabled,
       typePoolProbability,
-      false,
+      statementPoolEnabled,
       statementPoolProbability,
       typeInferenceMode,
       randomTypeProbability,
@@ -150,16 +152,18 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         // Filter out any undefined statements that were discarded
         const filteredStatements = statements.filter((s) => s !== undefined);
         if (filteredStatements.length > 0) {
-          this.statementPool = new StatementPool(filteredStatements);
+          this.randomSampler.statementPool = new StatementPool(
+            filteredStatements,
+          );
           testCases.push(new JavaScriptTestCase(filteredStatements));
         }
       }
     }
-    this.statementPool = undefined;
     return testCases;
   }
 
   sample(): JavaScriptTestCase {
+    this.randomSampler.statementPool = new StatementPool([]);
     this.randomSampler.rootContext = this.rootContext;
     const tests = this.convertIRToSynTest(this.irTestSuite);
     const numberOfTests = tests.length;
@@ -250,7 +254,10 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     name?: string,
   ): ConstructorCall {
     if (name && this.statementMap.has(name)) {
-      return this.statementMap.get(name) as ConstructorCall;
+      const existing = this.statementMap.get(name);
+      if (existing instanceof ConstructorCall) {
+        return existing;
+      }
     }
     if (!data) {
       return this.randomSampler.sampleConstructorCall(depth);
@@ -332,7 +339,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     if (!data) {
       return this.randomSampler.sampleMethodCall(depth);
     }
-
     const methodName = this._extractMethodName(data.callee);
     const targets = (<JavaScriptSubject>this._subject).getActionableTargets();
 
@@ -354,7 +360,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     );
 
     if (!methodTarget) {
-      // JavaScriptLLMConverter.LOGGER.warn(`Method '${methodName}' not found in actionable targets!`);
       return undefined;
     }
     // Get id and typeId of arguments
@@ -389,7 +394,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     const class_ = this._getClass(methodTarget.classId);
 
     // Use the recursive helper to extract the base object name.
-    // This will return "linkedList" even if the immediate callee object is a CallExpression.
     const objectName = this._getBaseObjectName(data.callee);
     if (!objectName) {
       JavaScriptLLMConverter.LOGGER.warn(
@@ -398,7 +402,33 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
       return undefined;
     }
     let constructorCall = this.statementMap.get(objectName) as ConstructorCall;
-    if (!constructorCall) {
+    if (constructorCall) {
+      // If the retrieved value is not a ConstructorCall, try to resolve it by following its _constructor chain
+      // Example case disjointSet.makeSet("A").makeSet("B");
+      // For the second makeSet it will retrieve disjointSet.makeSet("A") which is a methodCall.
+      if (!(constructorCall instanceof ConstructorCall)) {
+        let resolved: Statement = constructorCall;
+        const maxAttempts = 10;
+        let attempts = 0;
+        while (
+          !(resolved instanceof ConstructorCall) &&
+          resolved instanceof ClassActionStatement &&
+          attempts < maxAttempts
+        ) {
+          resolved = resolved.constructor_;
+          attempts++;
+        }
+        if (resolved instanceof ConstructorCall) {
+          constructorCall = resolved;
+          this.statementMap.set(objectName, resolved);
+        } else {
+          JavaScriptLLMConverter.LOGGER.warn(
+            `Could not resolve a ConstructorCall for object: ${objectName}`,
+          );
+          return undefined;
+        }
+      }
+    } else {
       // Create a new constructor and save it in the map for future reuse
       constructorCall = this.sampleConstructorCall(
         depth + 1,
@@ -527,6 +557,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
   sampleArgument(depth: number, id: string, name: string): Statement {
     // JavaScriptLLMConverter.LOGGER.warn("sampleArgument not implemented: " + depth + id + name);
     // return undefined;
+    this.randomSampler.statementPool = new StatementPool([]);
     return this.randomSampler.sampleArgument(depth, id, name);
   }
 
@@ -687,7 +718,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
               const calleeCallExpression = calleeData.object
                 .data as CallExpressionData;
 
-              // Expect case
+              // Expect casep
               if (
                 calleeData.object.type === "CallExpression" &&
                 calleeCallExpression.callee.type === "Identifier" &&
@@ -813,7 +844,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         );
       }
     }
-
     return processedStatements;
   }
 

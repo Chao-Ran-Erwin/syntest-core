@@ -30,7 +30,7 @@ export class LLMConverterPlugin extends SamplerPlugin<JavaScriptTestCase> {
   constructor() {
     super(
       "javascript-LLM-converter",
-      "A JavaScript, LLM generated test to Syntest encoding plugin",
+      "A JavaScript LLM-generated-test to Syntest encoding plugin",
     );
   }
 

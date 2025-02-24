@@ -826,12 +826,14 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
         // Create a dedicated PropertyTarget
         const propertyId = this._getNodeId(classBodyAttribute);
         // If propertyTarget doesn't already exist
-        if (!this._subTargets.some(
-          (target) =>
-            target.type === TargetType.PROPERTY &&
-            (target as PropertyTarget).name === propertyName &&
-            (target as PropertyTarget).classId === classId,
-        )) {
+        if (
+          !this._subTargets.some(
+            (target) =>
+              target.type === TargetType.PROPERTY &&
+              (target as PropertyTarget).name === propertyName &&
+              (target as PropertyTarget).classId === classId,
+          )
+        ) {
           const propertyTarget: PropertyTarget = {
             id: propertyId,
             typeId: propertyId,
@@ -878,11 +880,11 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
               t.name === subTarget.name &&
               (t.type === TargetType.METHOD
                 ? (<MethodTarget>t).methodType ===
-                (<MethodTarget>subTarget).methodType &&
-                (<MethodTarget>t).isStatic ===
-                (<MethodTarget>subTarget).isStatic &&
-                (<MethodTarget>t).classId ===
-                (<MethodTarget>subTarget).classId
+                    (<MethodTarget>subTarget).methodType &&
+                  (<MethodTarget>t).isStatic ===
+                    (<MethodTarget>subTarget).isStatic &&
+                  (<MethodTarget>t).classId ===
+                    (<MethodTarget>subTarget).classId
                 : true)
             );
           })
@@ -896,9 +898,12 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
     classId: string,
   ): void {
     // Find the constructor method in the class body.
-    const constructorMethod = classPath.get("body.body").find((method) =>
-      method.isClassMethod() && method.node.kind === "constructor",
-    );
+    const constructorMethod = classPath
+      .get("body.body")
+      .find(
+        (method) =>
+          method.isClassMethod() && method.node.kind === "constructor",
+      );
     if (!constructorMethod) return;
 
     // Traverse the constructor's body.
@@ -912,12 +917,14 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
         ) {
           const propertyName = path.node.left.property.name;
           // Check if we already have a target for this property.
-          if (!this._subTargets.some(
-            (target) =>
-              target.type === TargetType.PROPERTY &&
-              (target as PropertyTarget).name === propertyName &&
-              (target as PropertyTarget).classId === classId,
-          )) {
+          if (
+            !this._subTargets.some(
+              (target) =>
+                target.type === TargetType.PROPERTY &&
+                (target as PropertyTarget).name === propertyName &&
+                (target as PropertyTarget).classId === classId,
+            )
+          ) {
             // Create a new PropertyTarget.
             const propertyTarget: PropertyTarget = {
               id: this._getNodeId(path.node.left), // Or use a generated id
@@ -933,5 +940,4 @@ export class TargetVisitor extends AbstractSyntaxTreeVisitor {
       },
     });
   }
-
 }

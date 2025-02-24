@@ -15,7 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -26,76 +25,171 @@ import { JavaScriptSubject } from "../../search/JavaScriptSubject";
 
 export class LLMCommunication {
   private openai: OpenAI;
+  private prompts: Record<string, string>;
 
   constructor() {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call,@typescript-eslint/no-unsafe-assignment
     this.openai = new OpenAI({
-      apiKey: process.env["OPENAI_API_KEY"], // Ensuring apiKey is always a string
+      apiKey: process.env["OPENAI_API_KEY"],
     });
+
+    const promptsPath =
+      "C:\\Users\\erwin\\PycharmProjects\\syntest-project\\syntest-framework\\libraries\\search-javascript\\lib\\testcase\\sampling\\prompts.json";
+    this.prompts = this.loadPromptsFile(promptsPath);
+  }
+
+  /**
+   * Load prompts.json
+   */
+  private loadPromptsFile(filePath: string): Record<string, string> {
+    const raw = fs.readFileSync(filePath, "utf8");
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return JSON.parse(raw);
+  }
+
+  /**
+   * Replace placeholders (e.g. {class_code}) in the prompt
+   */
+  private constructPrompt(
+    key: string,
+    placeholders: Record<string, string>,
+  ): string {
+    let template = this.prompts[key];
+    if (!template) {
+      throw new Error(`No prompt found for key: ${key}`);
+    }
+    for (const [ph, value] of Object.entries(placeholders)) {
+      const regex = new RegExp(`\\{${ph}\\}`, "g");
+      template = template.replace(regex, value);
+    }
+    return template;
+  }
+
+  /**
+   * Extract everything between [OUTPUT] ... [/OUTPUT] tags.
+   */
+  private extractOutputTags(fullText: string): string {
+    const match = fullText.match(/\[OUTPUT](.*?)\[\/OUTPUT]/s);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+    return fullText.trim(); // fallback if no tags found
   }
 
   public async generateTest(
     filePath: string,
     subject: JavaScriptSubject,
   ): Promise<string> {
-    try {
-      const classCode: string = fs.readFileSync(filePath, "utf8");
+    const model = "gpt-3.5-turbo";
+    // 1) Get the className from the file path for storing in JSON
+    const className = path.basename(filePath, path.extname(filePath));
 
-      const targets = this.parseTargets(subject.getActionableTargets());
+    // 2) Gather code & targets
+    const classCode: string = fs.readFileSync(filePath, "utf8");
+    const targets = this.parseTargets(subject.getActionableTargets());
 
-      const prompt: string = `
+    // ─────────────────────────────────────────────────────────
+    // STEP A) self_refine_initial
+    // ─────────────────────────────────────────────────────────
+    const promptA = this.constructPrompt("self_refine_initial", {
+      class_code: classCode,
+      targets,
+    });
+    const responseA = await this.openai.chat.completions.create({
+      model: model,
+      messages: [
+        { role: "system", content: "You are a JavaScript testing expert." },
+        { role: "user", content: promptA },
+      ],
+    });
+    console.log(promptA);
+    const initialText = responseA.choices?.[0]?.message?.content ?? "";
+    const initialTestSuite = this.extractOutputTags(initialText);
 
-### Class Code:
-${classCode}
+    // Save step A result
+    this.saveStepResult("self_refine_initial", className, initialTestSuite);
 
-### Targets:
-${targets}
+    // ─────────────────────────────────────────────────────────
+    // STEP B) self_refine_reflection
+    // ─────────────────────────────────────────────────────────
+    const promptB = this.constructPrompt("self_refine_reflection", {
+      self_refine_initial: initialTestSuite,
+    });
+    const responseB = await this.openai.chat.completions.create({
+      model: model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a JavaScript testing expert reflecting on the suite.",
+        },
+        { role: "user", content: promptB },
+      ],
+    });
+    console.log(promptB);
+    const reflectionText = responseB.choices?.[0]?.message?.content ?? "";
+    const reflectionOutput = this.extractOutputTags(reflectionText);
 
-Provide the test cases in a structured format.`;
+    // Save step B result
+    this.saveStepResult("self_refine_reflection", className, reflectionOutput);
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-call,@typescript-eslint/no-unsafe-member-access
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a JavaScript testing expert. Generate Jest test cases for the given class and targets.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
+    // ─────────────────────────────────────────────────────────
+    // STEP C) self_refine_refinement
+    // ─────────────────────────────────────────────────────────
+    const promptC = this.constructPrompt("self_refine_refinement", {
+      self_refine_initial: initialTestSuite,
+      self_refine_reflection: reflectionOutput,
+      targets,
+    });
+    const responseC = await this.openai.chat.completions.create({
+      model: model,
+      messages: [
+        {
+          role: "system",
+          content: "Refine the test suite based on reflection.",
+        },
+        { role: "user", content: promptC },
+      ],
+    });
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-member-access
-      const output: string = response.choices?.[0]?.message?.content;
+    const refinementText = responseC.choices?.[0]?.message?.content ?? "";
+    const refinedTestSuite = this.extractOutputTags(refinementText);
+    console.log(promptC);
+    // Save step C result
+    this.saveStepResult("self_refine_refinement", className, refinedTestSuite);
 
-      return output ?? "No response received from ChatGPT.";
-    } catch {
-      return "Error generating test cases.";
-    }
+    // Return the final, refined suite
+    return refinedTestSuite;
   }
 
   /**
-   * Parses the targets to extract relevant NamedSubTarget information.
+   * Gather NamedSubTarget info as text
    */
   private parseTargets(targets: SubTarget[]): string {
-    let info = "";
+    const seen = new Set<string>();
+    const lines: string[] = [];
 
     for (const target of targets) {
       if (this.isNamedSubTarget(target)) {
-        info += `Name: ${target.name}, Type: ${target.type}\n`;
+        // Skip anonymous entries
+        if (target.name === "anonymous") {
+          continue;
+        }
+
+        // Construct the line for this target
+        const line = `Name: ${target.name}, Type: ${target.type}`;
+
+        // Check if we've already seen an identical line
+        if (!seen.has(line)) {
+          seen.add(line);
+          lines.push(line);
+        }
       }
     }
 
-    return info;
+    // Join everything with newlines
+    return lines.join("\n");
   }
 
-  /**
-   * Type guard function to check if a target is a NamedSubTarget.
-   */
   private isNamedSubTarget(target: SubTarget): target is NamedSubTarget {
     return (
       typeof (target as NamedSubTarget).name === "string" &&
@@ -104,9 +198,7 @@ Provide the test cases in a structured format.`;
   }
 
   /**
-   * Load existing LLM tests instead of generating new ones.
-   * @param testCaseFolder folder containing LLM tests
-   * @param className class-under-test
+   * Load existing test suite from a folder
    */
   public loadTestSuite(testCaseFolder: string, className: string): string {
     const files = fs.readdirSync(testCaseFolder);
@@ -117,5 +209,35 @@ Provide the test cases in a structured format.`;
       throw new Error(`Test case for ${className} not found`);
     }
     return fs.readFileSync(path.join(testCaseFolder, testCaseFile), "utf8");
+  }
+
+  private saveStepResult(
+    stepName: string,
+    className: string,
+    responseText: string,
+  ): void {
+    const outputDirectory = "./self_refine_with_targets/10";
+
+    // Ensure the directory exists
+    if (!fs.existsSync(outputDirectory)) {
+      fs.mkdirSync(outputDirectory, { recursive: true });
+    }
+
+    // The file we’re appending/writing to, e.g. self_refine_initial.json
+    const outFile = path.join(outputDirectory, `${stepName}.json`);
+
+    // If that file already exists, read it into an object; otherwise start fresh
+    let data: Record<string, string> = {};
+    if (fs.existsSync(outFile)) {
+      const raw = fs.readFileSync(outFile, "utf8");
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      data = JSON.parse(raw);
+    }
+
+    // Set or overwrite the response for this class
+    data[className] = responseText;
+
+    // Write it back to disk
+    fs.writeFileSync(outFile, JSON.stringify(data, undefined, 2), "utf8");
   }
 }
