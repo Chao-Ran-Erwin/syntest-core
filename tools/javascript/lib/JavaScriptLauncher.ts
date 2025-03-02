@@ -820,10 +820,7 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
         finalTestSuite.countAllTestCases() <
         this.arguments_.initialLLMPopulationSize
       ) {
-        testCaseCode = await llmCommunication.generateTest(
-          target.path,
-          currentSubject,
-        );
+        testCaseCode = await llmCommunication.generateTest(target.path);
         this.storageManager.store(
           ["LLM-tests"],
           `LLM-test-${target.name}${counter}.spec.js`,
