@@ -72,7 +72,7 @@ export abstract class ActionStatement extends Statement {
     return [...this._args];
   }
 
-  protected get args(): Statement[] {
+  get args(): Statement[] {
     return this._args;
   }
 

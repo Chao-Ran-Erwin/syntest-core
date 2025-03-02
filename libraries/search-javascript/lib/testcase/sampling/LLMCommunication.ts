@@ -18,10 +18,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { NamedSubTarget, SubTarget } from "@syntest/analysis-javascript";
 import { OpenAI } from "openai";
-
-import { JavaScriptSubject } from "../../search/JavaScriptSubject";
 
 export class LLMCommunication {
   private openai: OpenAI;
@@ -67,32 +64,31 @@ export class LLMCommunication {
   /**
    * Extract everything between [OUTPUT] ... [/OUTPUT] tags.
    */
-  private extractOutputTags(fullText: string): string {
-    const match = fullText.match(/\[OUTPUT](.*?)\[\/OUTPUT]/s);
+  private cleanCode(fullText: string): string {
+    // Remove all [OUTPUT] and [/OUTPUT] tags
+    let cleanedTestCode = fullText.replaceAll(/\[\/?OUTPUT]/g, "");
+
+    // Remove code fences if present (``` or ```javascript)
+    cleanedTestCode = cleanedTestCode
+      .replaceAll(/```(?:javascript)?\n?/g, "") // Remove ``` or ```javascript with optional newline
+      .replaceAll(/```\s*/g, ""); // Remove closing ```
+
+    // Extract text inside [OUTPUT] tags if they exist (fallback to cleaned text otherwise)
+    const match = cleanedTestCode.match(/\[OUTPUT](.*?)\[\/OUTPUT]/s);
     if (match && match[1]) {
       return match[1].trim();
     }
-    return fullText.trim(); // fallback if no tags found
+
+    return cleanedTestCode.trim(); // Fallback if no tags found
   }
 
-  public async generateTest(
-    filePath: string,
-    subject: JavaScriptSubject,
-  ): Promise<string> {
-    const model = "gpt-3.5-turbo";
-    // 1) Get the className from the file path for storing in JSON
-    const className = path.basename(filePath, path.extname(filePath));
-
+  public async generateTest(filePath: string): Promise<string> {
+    const model = "gpt-4o-mini";
     // 2) Gather code & targets
     const classCode: string = fs.readFileSync(filePath, "utf8");
-    const targets = this.parseTargets(subject.getActionableTargets());
 
-    // ─────────────────────────────────────────────────────────
-    // STEP A) self_refine_initial
-    // ─────────────────────────────────────────────────────────
     const promptA = this.constructPrompt("self_refine_initial", {
       class_code: classCode,
-      targets,
     });
     const responseA = await this.openai.chat.completions.create({
       model: model,
@@ -101,16 +97,10 @@ export class LLMCommunication {
         { role: "user", content: promptA },
       ],
     });
-    console.log(promptA);
+
     const initialText = responseA.choices?.[0]?.message?.content ?? "";
-    const initialTestSuite = this.extractOutputTags(initialText);
+    const initialTestSuite = this.cleanCode(initialText);
 
-    // Save step A result
-    this.saveStepResult("self_refine_initial", className, initialTestSuite);
-
-    // ─────────────────────────────────────────────────────────
-    // STEP B) self_refine_reflection
-    // ─────────────────────────────────────────────────────────
     const promptB = this.constructPrompt("self_refine_reflection", {
       self_refine_initial: initialTestSuite,
     });
@@ -125,20 +115,13 @@ export class LLMCommunication {
         { role: "user", content: promptB },
       ],
     });
-    console.log(promptB);
+
     const reflectionText = responseB.choices?.[0]?.message?.content ?? "";
-    const reflectionOutput = this.extractOutputTags(reflectionText);
+    const reflectionOutput = this.cleanCode(reflectionText);
 
-    // Save step B result
-    this.saveStepResult("self_refine_reflection", className, reflectionOutput);
-
-    // ─────────────────────────────────────────────────────────
-    // STEP C) self_refine_refinement
-    // ─────────────────────────────────────────────────────────
     const promptC = this.constructPrompt("self_refine_refinement", {
       self_refine_initial: initialTestSuite,
       self_refine_reflection: reflectionOutput,
-      targets,
     });
     const responseC = await this.openai.chat.completions.create({
       model: model,
@@ -152,49 +135,8 @@ export class LLMCommunication {
     });
 
     const refinementText = responseC.choices?.[0]?.message?.content ?? "";
-    const refinedTestSuite = this.extractOutputTags(refinementText);
-    console.log(promptC);
-    // Save step C result
-    this.saveStepResult("self_refine_refinement", className, refinedTestSuite);
 
-    // Return the final, refined suite
-    return refinedTestSuite;
-  }
-
-  /**
-   * Gather NamedSubTarget info as text
-   */
-  private parseTargets(targets: SubTarget[]): string {
-    const seen = new Set<string>();
-    const lines: string[] = [];
-
-    for (const target of targets) {
-      if (this.isNamedSubTarget(target)) {
-        // Skip anonymous entries
-        if (target.name === "anonymous") {
-          continue;
-        }
-
-        // Construct the line for this target
-        const line = `Name: ${target.name}, Type: ${target.type}`;
-
-        // Check if we've already seen an identical line
-        if (!seen.has(line)) {
-          seen.add(line);
-          lines.push(line);
-        }
-      }
-    }
-
-    // Join everything with newlines
-    return lines.join("\n");
-  }
-
-  private isNamedSubTarget(target: SubTarget): target is NamedSubTarget {
-    return (
-      typeof (target as NamedSubTarget).name === "string" &&
-      typeof (target as NamedSubTarget).typeId === "string"
-    );
+    return this.cleanCode(refinementText);
   }
 
   /**
@@ -209,35 +151,5 @@ export class LLMCommunication {
       throw new Error(`Test case for ${className} not found`);
     }
     return fs.readFileSync(path.join(testCaseFolder, testCaseFile), "utf8");
-  }
-
-  private saveStepResult(
-    stepName: string,
-    className: string,
-    responseText: string,
-  ): void {
-    const outputDirectory = "./self_refine_with_targets/10";
-
-    // Ensure the directory exists
-    if (!fs.existsSync(outputDirectory)) {
-      fs.mkdirSync(outputDirectory, { recursive: true });
-    }
-
-    // The file we’re appending/writing to, e.g. self_refine_initial.json
-    const outFile = path.join(outputDirectory, `${stepName}.json`);
-
-    // If that file already exists, read it into an object; otherwise start fresh
-    let data: Record<string, string> = {};
-    if (fs.existsSync(outFile)) {
-      const raw = fs.readFileSync(outFile, "utf8");
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      data = JSON.parse(raw);
-    }
-
-    // Set or overwrite the response for this class
-    data[className] = responseText;
-
-    // Write it back to disk
-    fs.writeFileSync(outFile, JSON.stringify(data, undefined, 2), "utf8");
   }
 }

@@ -174,7 +174,8 @@ export class TypeNode {
 
     for (const [dependency, score] of this._dependencyScores.entries()) {
       if (dependency === this) {
-        throw new Error("should never happen (self reference)");
+        // throw new Error("should never happen (self reference)");
+        continue;
       }
 
       if (

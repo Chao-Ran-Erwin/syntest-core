@@ -55,6 +55,7 @@ export type AlgorithmOptions = {
   sampler: string;
   terminationTriggers: string[];
   exceptionObjectives: boolean;
+  initialLLMPopulationSize: number;
 };
 
 export type BudgetOptions = {
@@ -276,6 +277,14 @@ export class Configuration {
         group: OptionGroups.SearchAlgorithm,
         hidden: false,
         type: "boolean",
+      },
+      "initial-LLM-population-size": {
+        alias: [],
+        default: 50,
+        description: "Number of LLM tests in the initial population.",
+        group: OptionGroups.SearchAlgorithm,
+        hidden: false,
+        type: "number",
       },
     };
   }

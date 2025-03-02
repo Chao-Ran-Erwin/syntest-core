@@ -53,11 +53,11 @@ describe("sampler info", () => {
   //   initializePseudoRandomNumberGenerator("0");
   // });
   it("run sampler", () => {
-
-    const rootPath =
-      "./test/benchmark";
-    const testPath = path.resolve(rootPath, "" +
-      "javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js"
+    const rootPath = "./test/benchmark";
+    const testPath = path.resolve(
+      rootPath,
+      "" +
+        "javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js",
       // "moment/src/lib/duration/create.js"
     );
 
@@ -85,10 +85,7 @@ describe("sampler info", () => {
     if (isFailure(targetResult)) throw targetResult.error;
     const target = unwrap(targetResult);
 
-    const cfpResult = new ControlFlowGraphFactory(false).convert(
-      testPath,
-      ast,
-    );
+    const cfpResult = new ControlFlowGraphFactory(false).convert(testPath, ast);
     if (isFailure(cfpResult)) throw cfpResult.error;
     const cfp: ControlFlowProgram = unwrap(cfpResult);
 
@@ -123,10 +120,7 @@ describe("sampler info", () => {
     const subject = new JavaScriptSubject(target, objectives);
 
     const constantPoolFactory = new ConstantPoolFactory(false);
-    const targetConstantPool = constantPoolFactory.extract(
-      testPath,
-      ast,
-    );
+    const targetConstantPool = constantPoolFactory.extract(testPath, ast);
     const contextConstantPool = new ConstantPool();
     const dynamicConstantPool = new ConstantPool();
     const constantPoolManager = new ConstantPoolManager(

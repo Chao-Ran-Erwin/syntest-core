@@ -19,4 +19,29 @@ import { DescribeBlock } from "./DescribeBlock";
 
 export class TestSuite {
   constructor(public describeBlocks: DescribeBlock[]) {}
+
+  public merge(other: TestSuite): void {
+    for (const sourceBlock of other.describeBlocks) {
+      // Check if there's an existing block with the same name
+      const existingBlock = this.describeBlocks.find(
+        (block) => block.name === sourceBlock.name,
+      );
+      if (existingBlock) {
+        // Merge test cases
+        existingBlock.testCases.push(...sourceBlock.testCases);
+        // Merge beforeEach bodies
+        existingBlock.beforeEachBodies.push(...sourceBlock.beforeEachBodies);
+      } else {
+        // If no block has the same name, just add this block as a new one
+        this.describeBlocks.push(sourceBlock);
+      }
+    }
+  }
+
+  countAllTestCases(): number {
+    return this.describeBlocks.reduce(
+      (accumulator, block) => accumulator + block.testCases.length,
+      0,
+    );
+  }
 }

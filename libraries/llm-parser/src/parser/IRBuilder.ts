@@ -89,7 +89,9 @@ export class IRBuilder {
     }
 
     const babelStatements = ASTParser.extractFunctionBody(functionNode);
-    const statements = babelStatements.map((stmt) => this.buildStatement(stmt));
+    const statements = babelStatements
+      .map((stmt) => this.buildStatement(stmt))
+      .filter((s) => s !== undefined);
 
     return new TestCase(
       name,
@@ -276,9 +278,10 @@ export class IRBuilder {
     } else if (typeof result === "boolean") {
       return new IRStatement<boolean>("Boolean", result);
     } else {
-      throw new TypeError(
-        `Unsupported UnaryExpression result type: ${typeof result}`,
-      );
+      return undefined;
+      // throw new TypeError(
+      //   `Unsupported UnaryExpression result type: ${typeof result}`,
+      // );
     }
   }
 
@@ -309,7 +312,9 @@ export class IRBuilder {
         return !operandValue;
       }
       default: {
-        throw new Error(`Unsupported unary operator: ${operator}`);
+        // throw new Error(`Unsupported unary operator: ${operator}`);
+        console.log(`Unsupported unary operator: ${operator}`);
+        return undefined;
       }
     }
   }
@@ -445,7 +450,10 @@ export class IRBuilder {
     return flattened;
   }
 
-  private _flattenIR(stmt: IRStatement): IRStatement[] {
+  private _flattenIR(stmt: IRStatement | undefined): IRStatement[] {
+    if (!stmt) {
+      return [];
+    }
     if (stmt.type === "MemberExpression") {
       const memberData = stmt.data as MemberExpressionData;
       // Flatten the object if it's a MemberExpression or CallExpression

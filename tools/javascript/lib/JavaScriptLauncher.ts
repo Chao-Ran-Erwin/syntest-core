@@ -53,7 +53,7 @@ import {
 } from "@syntest/cli-graphics";
 import { IllegalArgumentError, isFailure, unwrap } from "@syntest/diagnostics";
 import { Instrumenter } from "@syntest/instrumentation-javascript";
-import { IRBuilder } from "@syntest/llmparser";
+import { IRBuilder, TestSuite } from "@syntest/llmparser";
 import { getLogger, Logger } from "@syntest/logging";
 import { MetricManager } from "@syntest/metric";
 import { ModuleManager } from "@syntest/module";
@@ -77,15 +77,15 @@ import {
   BranchDistanceCalculator,
   ExecutionInformationProcessor,
   JavaScriptDecoder,
+  JavaScriptLLMConverter,
   JavaScriptRandomSampler,
   JavaScriptRunner,
   JavaScriptSubject,
   JavaScriptSuiteBuilder,
   JavaScriptTestCase,
   JavaScriptTestCaseSampler,
+  LLMCommunication,
 } from "@syntest/search-javascript";
-import { JavaScriptLLMConverter } from "@syntest/search-javascript/dist/lib/testcase/sampling/JavaScriptLLMConverter";
-import { LLMCommunication } from "@syntest/search-javascript/dist/lib/testcase/sampling/LLMCommunication";
 import { StorageManager } from "@syntest/storage";
 
 import { TestCommandOptions } from "./commands/test";
@@ -806,18 +806,37 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
     if (this.arguments_.sampler === "javascript-LLM-converter") {
       // method to get llm test suite
       const llmCommunication = new LLMCommunication();
-      // load existing test for now instead of making new ones
-      const testCaseCode = llmCommunication.loadTestSuite(
-        "C:\\Users\\erwin\\PycharmProjects\\syntest-project\\syntest-framework\\node_modules\\@syntest\\search-javascript\\test\\LLM-tests",
-        target.name.replace(".js", ""),
-      );
+      let counter = 0;
+      let finalTestSuite: TestSuite = new TestSuite([]);
+      let testCaseCode;
       const irBuilder = new IRBuilder();
-      const testSuite = irBuilder.buildIR(testCaseCode);
-
-      // Post-process the test suite
+      let testSuite;
+      // load existing test for now instead of making new ones
+      // const testCaseCode = llmCommunication.loadTestSuite(
+      //   "C:\\Users\\erwin\\PycharmProjects\\syntest-project\\syntest-framework\\node_modules\\@syntest\\search-javascript\\test\\LLM-tests\\2",
+      //   target.name.replace(".js", ""),
+      // );
+      while (
+        finalTestSuite.countAllTestCases() <
+        this.arguments_.initialLLMPopulationSize
+      ) {
+        testCaseCode = await llmCommunication.generateTest(
+          target.path,
+          currentSubject,
+        );
+        this.storageManager.store(
+          ["LLM-tests"],
+          `LLM-test-${target.name}${counter}.spec.js`,
+          testCaseCode,
+        );
+        testSuite = irBuilder.buildIR(testCaseCode);
+        finalTestSuite.merge(testSuite);
+        counter++;
+      }
+      // Post-process the test suite for encoding
       const temporaryTestSuite =
-        irBuilder.injectBeforeEachIntoTestCases(testSuite);
-      const finalTestSuite =
+        irBuilder.injectBeforeEachIntoTestCases(finalTestSuite);
+      finalTestSuite =
         irBuilder.postProcessFlattenChainedMemberExpressions(
           temporaryTestSuite,
         );

@@ -17,32 +17,10 @@
  */
 import * as path from "node:path";
 
-import {
-  AbstractSyntaxTreeFactory,
-  ConstantPoolFactory,
-  ControlFlowGraphFactory,
-  DependencyFactory,
-  ExportFactory,
-  InferenceTypeModelFactory,
-  RootContext,
-  TargetFactory,
-  TypeExtractor,
-} from "@syntest/analysis-javascript";
-import { FileSelector, TargetSelector } from "@syntest/base-language";
-import { ControlFlowProgram } from "@syntest/cfg";
-import { isFailure, unwrap } from "@syntest/diagnostics";
+import { FileSelector } from "@syntest/base-language";
 import { initializePseudoRandomNumberGenerator } from "@syntest/prng";
-import {
-  ApproachLevelCalculator,
-  extractBranchObjectivesFromProgram,
-  extractFunctionObjectivesFromProgram,
-  extractPathObjectivesFromProgram,
-  ObjectiveFunction,
-} from "@syntest/search";
 
-import { BranchDistanceCalculator } from "../lib/criterion/BranchDistance";
-import { JavaScriptSubject } from "../lib/search/JavaScriptSubject";
-import { JavaScriptTestCase } from "../lib/testcase/JavaScriptTestCase";
+// import { JavaScriptSubject } from "../lib/search/JavaScriptSubject";
 import { LLMCommunication } from "../lib/testcase/sampling/LLMCommunication";
 
 /**
@@ -51,7 +29,7 @@ import { LLMCommunication } from "../lib/testcase/sampling/LLMCommunication";
  * - This test consumes OpenAI credits, so use it carefully (or skip in CI).
  */
 
-describe("LLMCommunication (Integration Tests)", function () {
+describe("LLMCommunication (Integration Tests)", function (this: Mocha.Suite) {
   // Increase default Mocha timeout to accommodate multiple network calls
   this.timeout(120_000);
 
@@ -83,28 +61,6 @@ describe("LLMCommunication (Integration Tests)", function () {
   const fileSelector = new FileSelector();
   const targetFiles = fileSelector.loadFilePaths(targetFilesPaths, []);
 
-  // 2) Create a RootContext
-  const rootContext = new RootContext(
-    path.resolve("."),
-    targetFiles,
-    targetFiles,
-    new AbstractSyntaxTreeFactory(),
-    new ControlFlowGraphFactory(false),
-    new TargetFactory(false),
-    new DependencyFactory(false),
-    new ExportFactory(false),
-    new TypeExtractor(false),
-    new InferenceTypeModelFactory(),
-    new ConstantPoolFactory(false),
-  );
-
-  // 3) Create a TargetSelector and load the actual targets
-  const targetSelector = new TargetSelector(rootContext);
-  const targets = targetSelector.loadTargets(targetFilesPaths, []);
-  if (targets.length === 0) {
-    throw new Error(`No targets found for the given file paths`);
-  }
-
   let llmComm: LLMCommunication;
 
   before(() => {
@@ -119,71 +75,11 @@ describe("LLMCommunication (Integration Tests)", function () {
 
   describe("generateTest", () => {
     // Loop over each target returned by the TargetSelector
-    for (const targetContext of targets) {
-      const targetFileName = path.basename(
-        targetContext.path,
-        path.extname(targetContext.path),
-      );
+    for (const filePath of targetFiles) {
+      const targetFileName = path.basename(filePath, path.extname(filePath));
 
       it(`should generate a refined test suite for: ${targetFileName}`, async function () {
-        // Build a new JavaScriptSubject for THIS targetContext
-
-        // 1) Retrieve AST
-        const astResult = rootContext.getAbstractSyntaxTree(targetContext.path);
-        if (isFailure(astResult)) {
-          throw astResult.error;
-        }
-        const ast = unwrap(astResult);
-
-        // 2) Build a control-flow program
-        const cfpResult = new ControlFlowGraphFactory(false).convert(
-          targetContext.path,
-          ast,
-        );
-        if (isFailure(cfpResult)) {
-          throw cfpResult.error;
-        }
-        const cfp: ControlFlowProgram = unwrap(cfpResult);
-
-        // 3) Extract objectives
-        const functionObjectives =
-          extractFunctionObjectivesFromProgram<JavaScriptTestCase>(cfp);
-
-        const branchObjectives =
-          extractBranchObjectivesFromProgram<JavaScriptTestCase>(
-            cfp,
-            new ApproachLevelCalculator(),
-            new BranchDistanceCalculator(
-              false,
-              "abcdefghijklmnopqrstuvwxyz1234567890",
-            ),
-            functionObjectives,
-          );
-
-        const pathObjectives =
-          extractPathObjectivesFromProgram<JavaScriptTestCase>(
-            cfp,
-            new ApproachLevelCalculator(),
-            new BranchDistanceCalculator(
-              false,
-              "abcdefghijklmnopqrstuvwxyz1234567890",
-            ),
-            functionObjectives,
-          );
-
-        const objectives: ObjectiveFunction<JavaScriptTestCase>[] = [];
-        objectives.push(
-          ...functionObjectives,
-          ...branchObjectives,
-          ...pathObjectives,
-        );
-
-        // 4) Create a new JavaScriptSubject
-        const subject = new JavaScriptSubject(targetContext, objectives);
-
-        // 5) Now call LLMCommunication.generateTest() with this subject
-        const filePath = targetContext.path; // same as above
-        const finalSuite = await llmComm.generateTest(filePath, subject);
+        const finalSuite = await llmComm.generateTest(filePath);
 
         console.log(
           `\n=== Final refined test suite for ${targetFileName} ===\n`,

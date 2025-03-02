@@ -221,4 +221,8 @@ export class ObjectStatement extends Statement {
 
     this._object[key] = newChild;
   }
+
+  get object() {
+    return this._object;
+  }
 }

@@ -58,3 +58,4 @@ export * from "./lib/testcase/statements/Statement";
 export * from "./lib/testcase/JavaScriptTestCase";
 
 export * from "./lib/testcase/sampling/JavaScriptLLMConverter";
+export * from "./lib/testcase/sampling/LLMCommunication";

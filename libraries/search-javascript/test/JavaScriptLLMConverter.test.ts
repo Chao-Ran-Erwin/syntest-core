@@ -56,7 +56,7 @@ import { JavaScriptLLMConverter } from "../lib/testcase/sampling/JavaScriptLLMCo
 const expect = chai.expect;
 
 // Helper function to load the LLM-generated test case file
-const llmTestCaseFolder = "LLM-tests";
+const llmTestCaseFolder = "LLM-tests/3";
 function findTestCase(rootPath: string, className: string): string {
   const testCaseDirectory = path.join(rootPath, "..", llmTestCaseFolder);
   const files = fs.readdirSync(testCaseDirectory);
@@ -73,25 +73,25 @@ function findTestCase(rootPath: string, className: string): string {
 
 // Define the file paths to use as “include” patterns for target files
 const targetFilesPaths: string[] = [
-  // "./test/benchmark/javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js",
-  // "./test/benchmark/javascript-algorithms/src/algorithms/cryptography/hill-cipher/hillCipher.js",
-  // "./test/benchmark/javascript-algorithms/src/algorithms/math/liu-hui/liuHui.js",
-  // "./test/benchmark/javascript-algorithms/src/data-structures/linked-list/LinkedList.js",
+  "./test/benchmark/javascript-algorithms/src/algorithms/graph/travelling-salesman/bfTravellingSalesman.js",
+  "./test/benchmark/javascript-algorithms/src/algorithms/cryptography/hill-cipher/hillCipher.js",
+  "./test/benchmark/javascript-algorithms/src/algorithms/math/liu-hui/liuHui.js",
+  "./test/benchmark/javascript-algorithms/src/data-structures/linked-list/LinkedList.js",
   "./test/benchmark/javascript-algorithms/src/data-structures/disjoint-set/DisjointSet.js",
-  // "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/Knapsack.js",
-  // "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/KnapsackItem.js",
-  // "./test/benchmark/javascript-algorithms/src/data-structures/hash-table/HashTable.js",
-  // "./test/benchmark/javascript-algorithms/src/algorithms/graph/strongly-connected-components/stronglyConnectedComponents.js",
-  // "./test/benchmark/javascript-algorithms/src/data-structures/tree/fenwick-tree/FenwickTree.js",
-  // "./test/benchmark/javascript-algorithms/src/data-structures/trie/TrieNode.js",
-  // "./test/ShoppingCart.js",
-  // "./test/benchmark/express/lib/view.js",
-  // "./test/benchmark/express/lib/router/layer.js",
-  // "./test/benchmark/moment/src/lib/create/from-anything.js",
-  // "./test/benchmark/moment/src/lib/moment/compare.js",
-  // "./test/benchmark/moment/src/lib/duration/create.js",
-  // "./test/benchmark/moment/src/lib/duration/bubble.js",
-  // "./test/benchmark/moment/src/lib/moment/min-max.js",
+  "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/Knapsack.js",
+  "./test/benchmark/javascript-algorithms/src/algorithms/sets/knapsack-problem/KnapsackItem.js",
+  "./test/benchmark/javascript-algorithms/src/data-structures/hash-table/HashTable.js",
+  "./test/benchmark/javascript-algorithms/src/algorithms/graph/strongly-connected-components/stronglyConnectedComponents.js",
+  "./test/benchmark/javascript-algorithms/src/data-structures/tree/fenwick-tree/FenwickTree.js",
+  "./test/benchmark/javascript-algorithms/src/data-structures/trie/TrieNode.js",
+  "./test/ShoppingCart.js",
+  "./test/benchmark/express/lib/view.js",
+  "./test/benchmark/express/lib/router/layer.js",
+  "./test/benchmark/moment/src/lib/create/from-anything.js",
+  "./test/benchmark/moment/src/lib/moment/compare.js",
+  "./test/benchmark/moment/src/lib/duration/create.js",
+  "./test/benchmark/moment/src/lib/duration/bubble.js",
+  "./test/benchmark/moment/src/lib/moment/min-max.js",
 ];
 
 // In this example we use the same file list for analysis files

@@ -172,7 +172,7 @@ export class ArrayStatement extends Statement {
     this.children[index] = newChild;
   }
 
-  protected get children(): Statement[] {
+  get children(): Statement[] {
     return this._elements;
   }
 }

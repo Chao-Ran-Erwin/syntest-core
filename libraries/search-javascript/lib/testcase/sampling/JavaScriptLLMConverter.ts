@@ -236,7 +236,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
       arguments_[index] = mappedArgument;
     }
     const export_ = this._getExport(functionTarget.id);
-    // Construct and return a FunctionCall
     return new FunctionCall(
       functionTarget.id,
       functionTarget.typeId,
@@ -269,9 +268,9 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         .find((t) => (t as ClassTarget).name === data.callee)
     );
     if (!class_) {
-      JavaScriptLLMConverter.LOGGER.warn(
-        `Class target not found for: ${JSON.stringify(data.callee)}`,
-      );
+      // JavaScriptLLMConverter.LOGGER.warn(
+      //   // `Class target not found for: ${JSON.stringify(data.callee)}`,
+      // );
       return undefined;
     }
     const constructor_ = (<JavaScriptSubject>this._subject)
@@ -462,6 +461,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     data?: MemberExpressionData,
   ): Getter {
     if (!data) {
+      this.randomSampler.statementPool = new StatementPool([]);
       return this.randomSampler.sampleGetter(depth);
     }
     const propertyName = data.property as string;
@@ -522,6 +522,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
   sampleSetter(depth: number, left?: Getter, right?: Statement): Setter {
     // NOTE: if left or right is undefined, log and return undefined.
     if (!left || !right) {
+      this.randomSampler.statementPool = new StatementPool([]);
       return this.randomSampler.sampleSetter(depth);
     }
     return new Setter(
@@ -535,14 +536,17 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
   }
 
   sampleConstantObject(depth: number, objectId?: string): ConstantObject {
+    this.randomSampler.statementPool = new StatementPool([]);
     return this.randomSampler.sampleConstantObject(depth, objectId);
   }
 
   sampleObjectFunctionCall(depth: number): ObjectFunctionCall {
+    this.randomSampler.statementPool = new StatementPool([]);
     return this.randomSampler.sampleObjectFunctionCall(depth);
   }
 
   sampleArrayArgument(depth: number, arrayId: string): Statement {
+    this.randomSampler.statementPool = new StatementPool([]);
     return this.randomSampler.sampleArrayArgument(depth, arrayId);
   }
 
@@ -551,6 +555,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     objectId: string,
     property?: string,
   ): Statement {
+    this.randomSampler.statementPool = new StatementPool([]);
     return this.randomSampler.sampleObjectArgument(depth, objectId, property);
   }
 
@@ -569,12 +574,13 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     data?: ObjectExpressionData,
   ): ObjectStatement | ConstantObject | ConstructorCall {
     if (!data) {
+      this.randomSampler.statementPool = new StatementPool([]);
       return this.randomSampler.sampleObject(depth, id, typeId, name);
     }
     const object_: { [key: string]: Statement } = {};
     for (const [key, value] of Object.entries(data.properties)) {
       // Map each property to a corresponding SynTest statement
-      const mapped = this._mapArgument(depth + 1, value, key);
+      const mapped = this._mapArgument(depth + 1, value, id, typeId, key);
       if (mapped) {
         object_[key] = mapped;
       } else {
@@ -595,11 +601,12 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     data?: IRStatement[],
   ): ArrayStatement {
     if (!data) {
+      this.randomSampler.statementPool = new StatementPool([]);
       return this.randomSampler.sampleArray(depth, id, typeId, name);
     }
     const elements: Statement[] = (data || [])
       .map((statement) =>
-        this._mapArgument(depth + 1, statement, "id", "typeid", "arrayElement"),
+        this._mapArgument(depth + 1, statement, id, typeId, "arrayElement"),
       )
       .filter((s) => s !== undefined);
     return new ArrayStatement(id, typeId, name, prng.uniqueId(), elements);
@@ -790,8 +797,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
             const initializer = this._mapArgument(
               depth,
               data.init,
-              "undefinedid",
-              "undefinedtypeid",
+              "anon",
+              "anon",
               data.name,
             );
             if (initializer instanceof ActionStatement) {
@@ -808,8 +815,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
               const rightStatement = this._mapArgument(
                 depth,
                 data.right,
-                "undefinedkadrul",
-                "undefinedidkadrulu",
+                "anon",
+                "anon",
                 variableName,
               );
               if (rightStatement instanceof ActionStatement) {
@@ -857,8 +864,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
   private _mapArgument(
     depth: number,
     argument: IRStatement,
-    id = "id",
-    typeId = "typeId",
+    id = "anon",
+    typeId = "anon",
     name = "anon",
   ): Statement | undefined {
     try {
@@ -956,15 +963,19 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         }
         case "Identifier": {
           const identifierName = (argument.data as { name: string }).name;
-          // Check if the identifier refers to an object in the constructor map
           if (this.statementMap.has(identifierName)) {
-            return this.statementMap.get(identifierName);
+            const existing = this.statementMap.get(identifierName);
+            // If the provided id or typeId aren’t the placeholders, reconstruct the statement.
+            if (id !== "anon" || typeId !== "anon")
+              return this._reconstructStatement(existing, id, typeId);
+            return existing;
           }
           JavaScriptLLMConverter.LOGGER.warn(
             `Unhandled Identifier: ${identifierName}`,
           );
           return undefined;
         }
+
         default: {
           JavaScriptLLMConverter.LOGGER.warn(
             `Unhandled argument type: ${argument.type} ${JSON.stringify(argument.data)}`,
@@ -1070,5 +1081,123 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     };
 
     return constantMappings[objectName]?.[property];
+  }
+
+  private _reconstructStatement(
+    original: Statement,
+    newId: string,
+    newTypeId: string,
+  ): Statement {
+    // Reconstruct based on the type of the original statement
+    if (original instanceof ConstructorCall) {
+      return new ConstructorCall(
+        newId,
+        newTypeId,
+        original.classIdentifier,
+        original.name,
+        original.uniqueId,
+        original.args,
+        original.export,
+      );
+    } else if (original instanceof FunctionCall) {
+      return new FunctionCall(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.args,
+        original.export,
+      );
+    } else if (original instanceof MethodCall) {
+      return new MethodCall(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.args,
+        original.constructor_,
+      );
+    } else if (original instanceof Getter) {
+      return new Getter(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.constructor_,
+      );
+    } else if (original instanceof Setter) {
+      return new Setter(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.args[0],
+        original.constructor_,
+      );
+    } else if (original instanceof ArrayStatement) {
+      return new ArrayStatement(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.children,
+      );
+    } else if (original instanceof ObjectStatement) {
+      return new ObjectStatement(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.object,
+      );
+    } else if (original instanceof StringStatement) {
+      return new StringStatement(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.value,
+      );
+    } else if (original instanceof BoolStatement) {
+      return new BoolStatement(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.value,
+      );
+    } else if (original instanceof NumericStatement) {
+      return new NumericStatement(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.value,
+      );
+    } else if (original instanceof IntegerStatement) {
+      return new IntegerStatement(
+        newId,
+        newTypeId,
+        original.name,
+        original.uniqueId,
+        original.value,
+      );
+    } else if (original instanceof UndefinedStatement) {
+      return new UndefinedStatement(
+        newId,
+        newTypeId,
+        original.name,
+        prng.uniqueId(),
+      );
+    } else if (original instanceof NullStatement) {
+      return new NullStatement(
+        newId,
+        newTypeId,
+        original.name,
+        prng.uniqueId(),
+      );
+    }
+    // Fallback: if no special handling is needed, return the original.
+    return original;
   }
 }
