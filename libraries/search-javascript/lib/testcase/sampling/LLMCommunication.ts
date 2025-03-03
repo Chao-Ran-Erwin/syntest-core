@@ -29,7 +29,8 @@ export class LLMCommunication {
       apiKey: process.env["OPENAI_API_KEY"],
     });
 
-    const promptsPath = "./prompts.json"
+    // eslint-disable-next-line unicorn/prefer-module
+    const promptsPath = path.join(__dirname, "./prompts.json");
     this.prompts = this.loadPromptsFile(promptsPath);
   }
 
