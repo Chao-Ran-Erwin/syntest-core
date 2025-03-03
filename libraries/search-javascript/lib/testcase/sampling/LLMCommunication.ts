@@ -29,8 +29,7 @@ export class LLMCommunication {
       apiKey: process.env["OPENAI_API_KEY"],
     });
 
-    const promptsPath =
-      "C:\\Users\\erwin\\PycharmProjects\\syntest-project\\syntest-framework\\libraries\\search-javascript\\lib\\testcase\\sampling\\prompts.json";
+    const promptsPath = "./prompts.json"
     this.prompts = this.loadPromptsFile(promptsPath);
   }
 
