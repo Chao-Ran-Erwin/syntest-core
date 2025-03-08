@@ -129,3 +129,8 @@ test-results.json
 !/NOTICE
 **/NOTICE.header.ts
 !/NOTICE.header.ts
+
+.idea
+**/search-javascript/test/benchmark
+**/search-javascript/test/LLM-tests
+**/search-javascript/test/converted-tests

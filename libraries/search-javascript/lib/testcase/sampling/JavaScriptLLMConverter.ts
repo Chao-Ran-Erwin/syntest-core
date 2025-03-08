@@ -54,6 +54,7 @@ import { Setter } from "../statements/action/Setter";
 import { ArrayStatement } from "../statements/complex/ArrayStatement";
 import { ArrowFunctionStatement } from "../statements/complex/ArrowFunctionStatement";
 import { ObjectStatement } from "../statements/complex/ObjectStatement";
+// import { DynamicCall } from "../statements/DynamicCall";
 import { BoolStatement } from "../statements/primitive/BoolStatement";
 import { IntegerStatement } from "../statements/primitive/IntegerStatement";
 import { NullStatement } from "../statements/primitive/NullStatement";
@@ -474,10 +475,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
         .filter((method) => (<MethodTarget>method).methodType === "get"),
     ].find((t) => (t as PropertyTarget | MethodTarget).name === propertyName);
 
-    if (!property) {
-      // JavaScriptLLMConverter.LOGGER.warn(`Property not in list: ${propertyName}`);
-      return undefined;
-    }
     let constructorName: string;
     if (
       typeof data.object === "object" &&
@@ -504,12 +501,19 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
       );
       return undefined;
     }
+    if (!property) {
+      // JavaScriptLLMConverter.LOGGER.warn(`Property not in list: ${propertyName}`);
+      return undefined;
+      // TODO experiment with adding anyway
+      // return new Getter("anon", "anon", propertyName, prng.uniqueId(), constructor_);
+    }
     if (constructor_.classIdentifier !== (property as PropertyTarget).classId) {
       JavaScriptLLMConverter.LOGGER.error(
         `Wrong constructor class in sampleGetter ${constructor_.classIdentifier}`,
       );
       return undefined;
     }
+
     return new Getter(
       property.id,
       property.id,
@@ -617,10 +621,50 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     id: string,
     typeId: string,
     name: string,
+    data?: { params: IRStatement[]; body: IRStatement[]; isAsync: boolean },
   ): ArrowFunctionStatement {
-    // JavaScriptLLMConverter.LOGGER.warn("sampleArrowFunction not implemented: " + depth + id + typeId + name);
-    // return undefined;
-    return this.randomSampler.sampleArrowFunction(depth, id, typeId, name);
+    if (data === undefined) {
+      return this.randomSampler.sampleArrowFunction(depth, id, typeId, name);
+    }
+    // Extract parameter names from the IR data.
+    const parameters: string[] = [];
+    for (const parameter of data.params) {
+      if (parameter.type === "Identifier") {
+        parameters.push((parameter.data as { name: string }).name);
+      } else {
+        JavaScriptLLMConverter.LOGGER.warn(
+          `Unsupported parameter type in arrow function: ${parameter.type}`,
+        );
+      }
+    }
+
+    // Look for a return statement in the arrow function body.
+    // Our IRBuilder (in parseArrowFunctionExpression) converts a concise expression body
+    // into a ReturnStatement, so we search for it.
+    let returnValue: Statement | undefined = undefined;
+    for (const stmt of data.body) {
+      if (stmt.type === "ReturnStatement") {
+        // The ReturnStatement's data is expected to have an "argument" field.
+        const returnData = stmt.data as { argument: IRStatement };
+        returnValue = this._mapArgument(
+          depth + 1,
+          returnData.argument,
+          id,
+          typeId,
+          name,
+        );
+        break;
+      }
+    }
+
+    return new ArrowFunctionStatement(
+      id,
+      typeId,
+      name,
+      prng.uniqueId(),
+      parameters,
+      returnValue,
+    );
   }
 
   sampleString(
@@ -653,7 +697,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     name: string,
     value?: number,
   ): NumericStatement {
-    if (!value) return this.randomSampler.sampleNumber(id, typeId, name);
+    if (value === undefined)
+      return this.randomSampler.sampleNumber(id, typeId, name);
     return new NumericStatement(id, typeId, name, prng.uniqueId(), value);
   }
 
@@ -714,75 +759,11 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           }
 
           case "CallExpression": {
-            const data = irStatement.data as CallExpressionData;
-            if (data.callee.type === "Identifier") {
-              const stmt = this.sampleFunctionCall(depth, data);
-              if (stmt) {
-                processedStatements.push(stmt);
-              }
-            } else if (data.callee.type === "MemberExpression") {
-              const calleeData = data.callee.data as MemberExpressionData;
-              const calleeCallExpression = calleeData.object
-                .data as CallExpressionData;
-
-              // Expect casep
-              if (
-                calleeData.object.type === "CallExpression" &&
-                calleeCallExpression.callee.type === "Identifier" &&
-                (
-                  calleeCallExpression.callee.data as {
-                    name: string;
-                  }
-                ).name === "expect"
-              ) {
-                // Extract the method call inside `expect`
-                const innerCall = calleeCallExpression.args[0];
-                const innerCallExpression = innerCall.data;
-                if (
-                  innerCall.type === "CallExpression" &&
-                  (innerCallExpression as CallExpressionData).callee.type ===
-                    "MemberExpression"
-                ) {
-                  const stmt = this.sampleMethodCall(
-                    depth + 1,
-                    innerCallExpression as CallExpressionData,
-                  );
-                  if (stmt) processedStatements.push(stmt);
-                } else if (innerCall.type === "MemberExpression") {
-                  const stmt = this.sampleGetter(
-                    depth + 1,
-                    (innerCallExpression as MemberExpressionData)
-                      .property as string,
-                    innerCallExpression as MemberExpressionData,
-                  );
-                  if (stmt) processedStatements.push(stmt);
-                } else if (innerCall.type === "Identifier") {
-                  const identifierName = (innerCall.data as { name: string })
-                    .name;
-                  if (this.statementMap.has(identifierName)) {
-                    const mapValue = this.statementMap.get(identifierName);
-                    if (mapValue instanceof ActionStatement) {
-                      processedStatements.push(mapValue);
-                    }
-                  } else {
-                    JavaScriptLLMConverter.LOGGER.warn(
-                      `Unhandled Identifier in expect: ${identifierName}`,
-                    );
-                  }
-                } else {
-                  JavaScriptLLMConverter.LOGGER.warn(
-                    `Unhandled expect inner call: ${JSON.stringify(innerCall)}`,
-                  );
-                }
-              } else {
-                const stmt = this.sampleMethodCall(depth, data);
-                if (stmt) processedStatements.push(stmt);
-              }
-            } else {
-              JavaScriptLLMConverter.LOGGER.warn(
-                "Invalid CallExpression callee type",
-              );
+            const mapped = this._mapArgument(depth, irStatement);
+            if (mapped instanceof ActionStatement) {
+              processedStatements.push(mapped);
             }
+            this.statementMap.set(mapped.name, mapped);
             break;
           }
           case "VariableDeclaration": {
@@ -836,6 +817,20 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
             }
             break;
           }
+          // case "DynamicCall": {
+          //   const rawCode = (irStatement.data as { rawCode: string }).rawCode;
+          // const dynamicCallStatement = new DynamicCall(
+          //   "anon",         // variableIdentifier
+          //   "anon",         // typeIdentifier
+          //   "anon",         // name
+          //   rawCode,        // raw code snippet
+          //   prng.uniqueId() // a unique ID for this statement
+          // );
+          // // @ts-expect-error push dyna
+          //   processedStatements.push(dynamicCallStatement);
+          //   break;
+          //
+          // }
           default: {
             JavaScriptLLMConverter.LOGGER.warn(
               `Unhandled IR statement type: ${irStatement.type}`,
@@ -846,8 +841,8 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           }
         }
       } catch (error) {
-        JavaScriptLLMConverter.LOGGER.error(
-          `Error processing IR statement: ${error}`,
+        JavaScriptLLMConverter.LOGGER.warn(
+          `Error processing IR statement: ${error} ${JSON.stringify(irStatement)}`,
         );
       }
     }
@@ -900,6 +895,69 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           const callData = argument.data as CallExpressionData;
           if (callData.callee.type === "MemberExpression") {
             return this.sampleMethodCall(depth + 1, callData);
+          } else if (
+            callData.callee.type === "Identifier" &&
+            (callData.callee.data as { name: string }).name === "expect"
+          ) {
+            if (!callData.args || callData.args.length === 0) {
+              JavaScriptLLMConverter.LOGGER.warn(
+                "`expect` called with no arguments.",
+              );
+              return undefined;
+            }
+
+            const innerCall = callData.args[0];
+            // e.g. expect(something.someMethod())
+            // If I use a switch ESLint complains about nested switch
+            //eslint-disable-next-line unicorn/prefer-switch
+            if (innerCall.type === "CallExpression") {
+              const innerCallExpression = innerCall.data as CallExpressionData;
+              if (innerCallExpression.callee.type === "MemberExpression") {
+                return this.sampleMethodCall(depth + 1, innerCallExpression);
+              }
+            }
+            // e.g. expect(something.someGetter)
+            else if (innerCall.type === "MemberExpression") {
+              const innerMemberData = innerCall.data as MemberExpressionData;
+              return this.sampleGetter(
+                depth + 1,
+                innerMemberData.property as string,
+                innerMemberData,
+              );
+              // e.g. expect(() => something.someMethod())
+            } else if (innerCall.type === "ArrowFunction") {
+              return this.sampleArrowFunction(
+                depth + 1,
+                id,
+                typeId,
+                name,
+                innerCall.data as {
+                  params: IRStatement[];
+                  body: IRStatement[];
+                  isAsync: boolean;
+                },
+              );
+            }
+            // e.g. expect(someIdentifier)
+            else if (innerCall.type === "Identifier") {
+              const identifierName = (innerCall.data as { name: string }).name;
+              if (this.statementMap.has(identifierName)) {
+                const mapValue = this.statementMap.get(identifierName);
+                if (mapValue instanceof ActionStatement) {
+                  return mapValue;
+                }
+              } else {
+                JavaScriptLLMConverter.LOGGER.warn(
+                  `Unhandled Identifier in expect: ${identifierName}`,
+                );
+              }
+            } else {
+              // If it's not a recognized type, just log it
+              JavaScriptLLMConverter.LOGGER.warn(
+                `Unhandled expect inner call: ${JSON.stringify(innerCall)}`,
+              );
+            }
+            return undefined;
           } else if (callData.callee.type === "Identifier") {
             return this.sampleFunctionCall(depth + 1, callData);
           }
@@ -952,6 +1010,19 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
             argument.data as ObjectExpressionData,
           );
         }
+        case "ArrowFunction": {
+          return this.sampleArrowFunction(
+            depth + 1,
+            id,
+            typeId,
+            name,
+            argument.data as {
+              params: IRStatement[];
+              body: IRStatement[];
+              isAsync: boolean;
+            },
+          );
+        }
         case "ArrayExpression": {
           return this.sampleArray(
             depth + 1,
@@ -975,6 +1046,16 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           );
           return undefined;
         }
+        // case "DynamicCall": {
+        //   // Create a DynamicCall SynTest statement using the raw code from the IRStatement.
+        //   return new DynamicCall(
+        //     id,
+        //     typeId,
+        //     name,
+        //     (argument.data as { rawCode: string }).rawCode,
+        //     prng.uniqueId(),
+        //   );
+        // }
 
         default: {
           JavaScriptLLMConverter.LOGGER.warn(
@@ -1048,7 +1129,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
 
   private _getExport(classId: string | undefined): Export {
     if (!classId) return undefined;
-    const filePath = classId.split("::")[0]; // Had to change this TODO windows bug! see how they change it and copy
+    const filePath = classId.split("::")[0];
     const exports = unwrapOr(this.rootContext.getExports(filePath), []);
     const exp = exports.find((export_) => export_.id === classId);
     if (!exp) {

@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import generate from "@babel/generator";
 import * as t from "@babel/types";
 import { getLogger, Logger } from "@syntest/logging";
 
@@ -41,40 +42,52 @@ export class IRBuilder {
   }
 
   public buildIR(code: string): TestSuite {
-    const ast = ASTParser.parse(code);
-    const describeBlocks = ASTParser.extractDescribeBlocks(ast);
+    try {
+      const ast = ASTParser.parse(code);
+      const describeBlocks = ASTParser.extractDescribeBlocks(ast);
 
-    const describeModels = describeBlocks.map((describeBlock) =>
-      this.buildDescribeBlock(describeBlock),
-    );
-    let testSuite = new TestSuite(describeModels);
+      const describeModels = describeBlocks
+        .map((describeBlock) => this.buildDescribeBlock(describeBlock))
+        .filter((d) => d !== undefined);
+      let testSuite = new TestSuite(describeModels);
 
-    // Postprocess to flatten chained members
-    testSuite = this.postProcessFlattenChainedMemberExpressions(testSuite);
+      // Postprocess to flatten chained members
+      testSuite = this.postProcessFlattenChainedMemberExpressions(testSuite);
 
-    return testSuite;
+      return testSuite;
+    } catch (error) {
+      IRBuilder.LOGGER.warn(error as string);
+      return undefined;
+    }
   }
 
   buildDescribeBlock(describeBlock: {
     name: string;
     node: t.CallExpression;
   }): DescribeBlock {
-    const name = describeBlock.name;
+    try {
+      const name = describeBlock.name;
 
-    const itBlocks = ASTParser.extractItBlocks(describeBlock.node);
-    const testCases = itBlocks.map((itBlock) => this.buildTestCase(itBlock));
+      const itBlocks = ASTParser.extractItBlocks(describeBlock.node);
+      const testCases = itBlocks
+        .map((itBlock) => this.buildTestCase(itBlock))
+        .filter((tc) => tc !== undefined);
 
-    const programNode = t.file(
-      t.program([t.expressionStatement(describeBlock.node)]),
-    );
-    const beforeEachBlocks = ASTParser.extractBeforeEachBlocks(
-      programNode,
-    ).flatMap((block) => block.body);
-    const beforeEachStatements = beforeEachBlocks.map((stmt) =>
-      this.buildStatement(stmt),
-    );
+      const programNode = t.file(
+        t.program([t.expressionStatement(describeBlock.node)]),
+      );
+      const beforeEachBlocks = ASTParser.extractBeforeEachBlocks(
+        programNode,
+      ).flatMap((block) => block.body);
+      const beforeEachStatements = beforeEachBlocks
+        .map((stmt) => this.buildStatement(stmt))
+        .filter((s) => s !== undefined);
 
-    return new DescribeBlock(name, testCases, beforeEachStatements);
+      return new DescribeBlock(name, testCases, beforeEachStatements);
+    } catch (error) {
+      IRBuilder.LOGGER.warn(error as string);
+      return undefined;
+    }
   }
 
   buildTestCase(itBlock: { name: string; node: t.CallExpression }): TestCase {
@@ -85,7 +98,8 @@ export class IRBuilder {
       !t.isFunctionExpression(functionNode) &&
       !t.isArrowFunctionExpression(functionNode)
     ) {
-      throw new Error(`Expected a function in 'it' block: ${name}`);
+      IRBuilder.LOGGER.warn(`Expected a function in 'it' block: ${name}`);
+      return undefined;
     }
 
     const babelStatements = ASTParser.extractFunctionBody(functionNode);
@@ -100,62 +114,72 @@ export class IRBuilder {
   }
 
   buildStatement(node: t.Statement | t.Expression): IRStatement {
-    if (t.isExpressionStatement(node)) {
-      return this.buildStatement(node.expression);
-    }
+    try {
+      if (t.isExpressionStatement(node)) {
+        return this.buildStatement(node.expression);
+      }
 
-    if (t.isNumericLiteral(node)) {
-      return new IRStatement<number>("Numeric", node.value);
-    }
-    if (t.isStringLiteral(node)) {
-      return new IRStatement<string>("String", node.value);
-    }
-    if (t.isBooleanLiteral(node)) {
-      return new IRStatement<boolean>("Boolean", node.value);
-    }
-    if (t.isNullLiteral(node)) {
-      return new IRStatement<null>("Null", undefined);
-    }
-    if (t.isIdentifier(node)) {
-      return new IRStatement<{ name: string }>("Identifier", {
-        name: node.name,
-      });
-    }
+      if (t.isNumericLiteral(node)) {
+        return new IRStatement<number>("Numeric", node.value);
+      }
+      if (t.isStringLiteral(node)) {
+        return new IRStatement<string>("String", node.value);
+      }
+      if (t.isBooleanLiteral(node)) {
+        return new IRStatement<boolean>("Boolean", node.value);
+      }
+      if (t.isNullLiteral(node)) {
+        return new IRStatement<null>("Null", undefined);
+      }
+      if (t.isIdentifier(node)) {
+        return new IRStatement<{ name: string }>("Identifier", {
+          name: node.name,
+        });
+      }
 
-    if (t.isNewExpression(node)) {
-      return this.parseNewExpression(node);
-    }
-    if (t.isCallExpression(node)) {
-      return this.parseCallExpression(node);
-    }
-    if (t.isMemberExpression(node)) {
-      return this.parseMemberExpression(node);
-    }
-    if (t.isAssignmentExpression(node)) {
-      return this.parseAssignmentExpression(node);
-    }
+      if (t.isNewExpression(node)) {
+        return this.parseNewExpression(node);
+      }
+      if (t.isCallExpression(node)) {
+        return this.parseCallExpression(node);
+      }
+      if (t.isMemberExpression(node)) {
+        return this.parseMemberExpression(node);
+      }
+      if (t.isAssignmentExpression(node)) {
+        return this.parseAssignmentExpression(node);
+      }
 
-    if (t.isVariableDeclaration(node)) {
-      const declarations = this.parseVariableDeclaration(node);
-      return declarations.length === 1
-        ? declarations[0]
-        : new IRStatement("MultipleVariableDeclarations", declarations);
-    }
-    if (t.isUnaryExpression(node)) {
-      return this.parseUnaryExpression(node);
-    }
+      if (t.isVariableDeclaration(node)) {
+        const declarations = this.parseVariableDeclaration(node).filter(
+          (d) => d !== undefined,
+        );
+        return declarations.length === 1
+          ? declarations[0]
+          : new IRStatement("MultipleVariableDeclarations", declarations);
+      }
+      if (t.isUnaryExpression(node)) {
+        return this.parseUnaryExpression(node);
+      }
 
-    if (t.isObjectExpression(node)) {
-      return this.parseObjectExpression(node);
+      if (t.isObjectExpression(node)) {
+        return this.parseObjectExpression(node);
+      }
+      if (t.isArrayExpression(node)) {
+        return this.parseArrayExpression(node);
+      }
+      if (t.isArrowFunctionExpression(node)) {
+        return this.parseArrowFunctionExpression(node);
+      }
+      IRBuilder.LOGGER.warn(`Unsupported node type: ${node.type} `);
+      // Convert the AST node to a code snippet
+      const rawCode = generate(node).code;
+
+      return new IRStatement("DynamicCall", { rawCode });
+    } catch (error) {
+      IRBuilder.LOGGER.warn(error as string);
+      return undefined;
     }
-    if (t.isArrayExpression(node)) {
-      return this.parseArrayExpression(node);
-    }
-    if (t.isArrowFunctionExpression(node)) {
-      return this.parseArrowFunctionExpression(node);
-    }
-    IRBuilder.LOGGER.warn(`Unsupported node type: ${node.type} `);
-    return undefined;
   }
 
   parseNewExpression(node: t.NewExpression): IRStatement<ConstructorCallData> {
@@ -456,12 +480,16 @@ export class IRBuilder {
     }
     if (stmt.type === "MemberExpression") {
       const memberData = stmt.data as MemberExpressionData;
-      // Flatten the object if it's a MemberExpression or CallExpression
       const objectFlattened = this._flattenIR(memberData.object);
       const finalObject = objectFlattened.at(-1);
 
-      // If we have more than one statement, or if the final object is a CallExpression,
-      // create a temporary variable for it.
+      if (!finalObject) {
+        IRBuilder.LOGGER.warn(
+          "Could not flatten MemberExpression: object is undefined",
+        );
+        return [];
+      }
+
       if (objectFlattened.length > 1 || finalObject.type === "CallExpression") {
         const temporaryVariable = `tmp${Math.floor(Math.random() * 10_000)}`;
         const variableDecl = new IRStatement("VariableDeclaration", {
@@ -481,10 +509,13 @@ export class IRBuilder {
         ];
       }
 
-      // Also check if the current MemberExpression's object is still a MemberExpression
       if (finalObject.type === "MemberExpression") {
         const innerFlattened = this._flattenIR(finalObject);
         const finalInner = innerFlattened.at(-1);
+        if (!finalInner) {
+          IRBuilder.LOGGER.warn("Could not flatten inner MemberExpression");
+          return [];
+        }
         const temporaryVariable = `tmp${Math.floor(Math.random() * 10_000)}`;
         const variableDecl = new IRStatement("VariableDeclaration", {
           name: temporaryVariable,
@@ -506,28 +537,35 @@ export class IRBuilder {
       return [stmt];
     } else if (stmt.type === "CallExpression") {
       const callData = stmt.data as CallExpressionData;
-
-      // Flatten the callee
       const calleeFlattened = this._flattenIR(callData.callee);
       const flattenedCallee = calleeFlattened.at(-1);
 
-      // Flatten each argument
+      if (!flattenedCallee) {
+        IRBuilder.LOGGER.warn(
+          "Could not flatten CallExpression: callee is undefined",
+        );
+        return [];
+      }
+
       const argumentsFlattened: IRStatement[][] = [];
       const newArguments: IRStatement[] = [];
       for (const argument of callData.args) {
         const argumentFlattened = this._flattenIR(argument);
         argumentsFlattened.push(argumentFlattened);
-        newArguments.push(argumentFlattened.at(-1));
+        const lastArgument = argumentFlattened.at(-1);
+        if (!lastArgument) {
+          IRBuilder.LOGGER.warn("Skipping argument due to undefined value");
+          continue;
+        }
+        newArguments.push(lastArgument);
       }
 
-      // Collect all temporary variables from callee and arguments
       const allStatements: IRStatement[] = [];
       allStatements.push(...calleeFlattened.slice(0, -1));
       for (const argument of argumentsFlattened) {
         allStatements.push(...argument.slice(0, -1));
       }
 
-      // Reconstruct the CallExpression with flattened components
       const newCall = new IRStatement("CallExpression", {
         callee: flattenedCallee,
         args: newArguments,
@@ -537,7 +575,6 @@ export class IRBuilder {
       return allStatements;
     }
 
-    // Recursively process other expression types if needed
     return [stmt];
   }
 }

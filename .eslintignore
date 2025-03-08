@@ -22,5 +22,6 @@
 **/instrumentation/source-coverage.ts
 
 
-/libraries/search-javascript/test/LLM-tests/*.js
-/libraries/search-javascript/test/benchmark
+**/search-javascript/test/benchmark
+**/search-javascript/test/LLM-tests
+**/search-javascript/test/converted-tests
