@@ -33,6 +33,7 @@ import {
   ConstructorCallData,
   MemberExpressionData,
   ObjectExpressionData,
+  ObjectMethodData,
   VariableDeclarationData,
 } from "@syntest/llmparser/src/models/IRStatementTypes";
 import { TestSuite } from "@syntest/llmparser/src/models/TestSuite";
@@ -54,7 +55,6 @@ import { Setter } from "../statements/action/Setter";
 import { ArrayStatement } from "../statements/complex/ArrayStatement";
 import { ArrowFunctionStatement } from "../statements/complex/ArrowFunctionStatement";
 import { ObjectStatement } from "../statements/complex/ObjectStatement";
-// import { DynamicCall } from "../statements/DynamicCall";
 import { BoolStatement } from "../statements/primitive/BoolStatement";
 import { IntegerStatement } from "../statements/primitive/IntegerStatement";
 import { NullStatement } from "../statements/primitive/NullStatement";
@@ -817,20 +817,7 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
             }
             break;
           }
-          // case "DynamicCall": {
-          //   const rawCode = (irStatement.data as { rawCode: string }).rawCode;
-          // const dynamicCallStatement = new DynamicCall(
-          //   "anon",         // variableIdentifier
-          //   "anon",         // typeIdentifier
-          //   "anon",         // name
-          //   rawCode,        // raw code snippet
-          //   prng.uniqueId() // a unique ID for this statement
-          // );
-          // // @ts-expect-error push dyna
-          //   processedStatements.push(dynamicCallStatement);
-          //   break;
-          //
-          // }
+
           default: {
             JavaScriptLLMConverter.LOGGER.warn(
               `Unhandled IR statement type: ${irStatement.type}`,
@@ -1032,6 +1019,58 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
             argument.data as IRStatement[],
           );
         }
+        case "ObjectMethod": {
+          const data = argument.data as ObjectMethodData;
+          // Convert parameter IR statements to a list of parameter names.
+          const parameters: string[] = data.params.map((parameter) => {
+            if (parameter.type === "Identifier") {
+              return (parameter.data as { name: string }).name;
+            }
+            JavaScriptLLMConverter.LOGGER.warn(
+              `Unsupported parameter type in ObjectMethod: ${parameter.type}`,
+            );
+            return "anon";
+          });
+          // Optionally, extract a return value from the body (if there is a ReturnStatement).
+          let returnValue: Statement | undefined = undefined;
+          for (const stmt of data.body) {
+            if (stmt.type === "ReturnStatement") {
+              const returnData = stmt.data as { argument: IRStatement };
+              returnValue = this._mapArgument(
+                depth + 1,
+                returnData.argument,
+                id,
+                typeId,
+                name,
+              );
+              break;
+            }
+          }
+          // Map the object method to an ArrowFunctionStatement.
+          return new ArrowFunctionStatement(
+            id,
+            typeId,
+            name,
+            prng.uniqueId(),
+            parameters,
+            returnValue,
+          );
+        }
+        case "ReturnStatement": {
+          const returnValueData = argument.data as { argument: IRStatement };
+          // Map the return expression, if it exists.
+          if (returnValueData.argument) {
+            return this._mapArgument(
+              depth,
+              returnValueData.argument,
+              id,
+              typeId,
+              name,
+            );
+          }
+          return undefined;
+        }
+
         case "Identifier": {
           const identifierName = (argument.data as { name: string }).name;
           if (this.statementMap.has(identifierName)) {
@@ -1046,16 +1085,6 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           );
           return undefined;
         }
-        // case "DynamicCall": {
-        //   // Create a DynamicCall SynTest statement using the raw code from the IRStatement.
-        //   return new DynamicCall(
-        //     id,
-        //     typeId,
-        //     name,
-        //     (argument.data as { rawCode: string }).rawCode,
-        //     prng.uniqueId(),
-        //   );
-        // }
 
         default: {
           JavaScriptLLMConverter.LOGGER.warn(

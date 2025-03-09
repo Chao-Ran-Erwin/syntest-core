@@ -48,3 +48,10 @@ export interface VariableDeclarationData {
 export interface ObjectExpressionData {
   properties: Record<string, IRStatement>; // Define properties as a record of IRStatements
 }
+
+export interface ObjectMethodData {
+  name: string;
+  params: IRStatement[];
+  body: IRStatement[];
+  kind: "method" | "get" | "set";
+}

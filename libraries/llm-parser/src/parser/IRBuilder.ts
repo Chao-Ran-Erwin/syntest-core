@@ -27,6 +27,7 @@ import {
   ConstructorCallData,
   MemberExpressionData,
   ObjectExpressionData,
+  ObjectMethodData,
   VariableDeclarationData,
 } from "../models/IRStatementTypes";
 import { TestCase } from "../models/TestCase";
@@ -171,11 +172,16 @@ export class IRBuilder {
       if (t.isArrowFunctionExpression(node)) {
         return this.parseArrowFunctionExpression(node);
       }
+      if (t.isReturnStatement(node)) {
+        return new IRStatement("ReturnStatement", {
+          argument: node.argument
+            ? this.buildStatement(node.argument)
+            : undefined,
+        });
+      }
       IRBuilder.LOGGER.warn(`Unsupported node type: ${node.type} `);
-      // Convert the AST node to a code snippet
-      const rawCode = generate(node).code;
-
-      return new IRStatement("DynamicCall", { rawCode });
+      IRBuilder.LOGGER.warn(generate(node).code);
+      return undefined;
     } catch (error) {
       IRBuilder.LOGGER.warn(error as string);
       return undefined;
@@ -390,12 +396,26 @@ export class IRBuilder {
                 `Unsupported object property value type: ${property.value.type}`,
               );
             })();
+      } else if (t.isObjectMethod(property)) {
+        // Key is either an identifier or a string literal
+        const key = t.isIdentifier(property.key)
+          ? property.key.name
+          : t.isStringLiteral(property.key)
+            ? property.key.value
+            : (() => {
+                throw new Error(
+                  `Unsupported object method key type: ${property.key.type}`,
+                );
+              })();
+
+        // Build an IRStatement describing the method
+        properties[key] = this.parseObjectMethod(property);
       } else if (t.isSpreadElement(property)) {
         throw new Error(
           `Spread elements in object expressions are not yet supported: ${property.type}`,
         );
       } else {
-        throw new Error(`Unsupported object property type: ${property.type}`);
+        throw new Error(`Unsupported object property type`);
       }
     }
 
@@ -576,5 +596,42 @@ export class IRBuilder {
     }
 
     return [stmt];
+  }
+  private parseObjectMethod(node: t.ObjectMethod): IRStatement {
+    // Extract the method’s name, parameters, body, async, generator, etc.
+    const methodName = t.isIdentifier(node.key)
+      ? node.key.name
+      : t.isStringLiteral(node.key)
+        ? node.key.value
+        : "unknownMethod";
+
+    // Process parameters (similar to parseArrowFunctionExpression)
+    const parametersIR: IRStatement[] = node.params.map((parameter) => {
+      if (t.isIdentifier(parameter)) {
+        return new IRStatement("Identifier", { name: parameter.name });
+      }
+      // You can handle other param patterns as needed
+      throw new Error(
+        `Unsupported parameter type in object method: ${parameter.type}`,
+      );
+    });
+
+    // Process body
+    let bodyIR: IRStatement[] = [];
+    if (t.isBlockStatement(node.body)) {
+      bodyIR = node.body.body.map((stmt) => this.buildStatement(stmt));
+    } else {
+      // Should never happen for an ObjectMethod, but just in case
+      throw new Error(
+        `Expected block statement in object method body: ${methodName}`,
+      );
+    }
+
+    return new IRStatement<ObjectMethodData>("ObjectMethod", {
+      name: methodName,
+      params: parametersIR,
+      body: bodyIR,
+      kind: node.kind, // "method", "get", or "set"
+    });
   }
 }
