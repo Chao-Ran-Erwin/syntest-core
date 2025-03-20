@@ -804,32 +804,53 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
     const constantPoolManager = unwrap(constantPoolManagerResult);
     let sampler: JavaScriptTestCaseSampler;
     if (this.arguments_.sampler === "javascript-LLM-converter") {
-      // method to get llm test suite
+      const determineBatchNumber = (requiredTests: number) => {
+        if (requiredTests >= 40) return 4;
+        if (requiredTests >= 20) return 2;
+        return 1;
+      };
       const llmCommunication = new LLMCommunication();
       let counter = 0;
+      let totalLLMTime = 0;
+
       let finalTestSuite: TestSuite = new TestSuite([]);
-      let testCaseCode;
       const irBuilder = new IRBuilder();
       let testSuite;
-      // load existing test for now instead of making new ones
-      // const testCaseCode = llmCommunication.loadTestSuite(
-      //   "C:\\Users\\erwin\\PycharmProjects\\syntest-project\\syntest-framework\\node_modules\\@syntest\\search-javascript\\test\\LLM-tests\\2",
-      //   target.name.replace(".js", ""),
-      // );
+
       while (
         finalTestSuite.countAllTestCases() <
         this.arguments_.initialLLMPopulationSize
       ) {
-        testCaseCode = await llmCommunication.generateTest(target.path);
-        this.storageManager.store(
-          ["LLM-tests"],
-          `LLM-test-${target.name}${counter}.spec.js`,
-          testCaseCode,
-        );
-        testSuite = irBuilder.buildIR(testCaseCode);
-        finalTestSuite.merge(testSuite);
-        counter++;
+        const needed =
+          this.arguments_.initialLLMPopulationSize -
+          finalTestSuite.countAllTestCases();
+        const batchSize = determineBatchNumber(needed);
+
+        const batchPromises: Promise<string>[] = [];
+        const llmStartTime = Date.now();
+
+        for (let index = 0; index < batchSize; index++) {
+          batchPromises.push(llmCommunication.generateTest(target.path));
+        }
+        const batchResults = await Promise.all(batchPromises);
+        const llmEndTime = Date.now();
+        totalLLMTime += llmEndTime - llmStartTime;
+        for (const testCaseCode of batchResults) {
+          this.storageManager.store(
+            ["LLM-tests"],
+            `LLM-test-${target.name}${counter}.spec.js`,
+            testCaseCode,
+          );
+          testSuite = irBuilder.buildIR(testCaseCode);
+          finalTestSuite.merge(testSuite);
+          counter++;
+        }
       }
+
+      this.metricManager.recordProperty(
+        "LLM_QUERY_TIME",
+        totalLLMTime.toString(),
+      );
       // Post-process the test suite for encoding
       const temporaryTestSuite =
         irBuilder.injectBeforeEachIntoTestCases(finalTestSuite);

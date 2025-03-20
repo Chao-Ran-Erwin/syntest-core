@@ -78,8 +78,8 @@ describe("LLMCommunication (Integration Tests)", function (this: Mocha.Suite) {
     for (const filePath of targetFiles) {
       const targetFileName = path.basename(filePath, path.extname(filePath));
 
-      it(`should generate a refined test suite for: ${targetFileName}`, // async
-      function () {
+      it(`should generate a refined test suite for: ${targetFileName}`, function () {
+        // async
         // const finalSuite = await llmComm.generateTest(filePath);
 
         console.log(

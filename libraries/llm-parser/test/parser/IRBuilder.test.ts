@@ -307,13 +307,21 @@ describe('ShoppingCart', () => {
       expect(statement.type).toBe("Numeric");
       expect(statement.data).toEqual({ value: 42 });
     });
-
+    it("should correctly parse a constructor expression", () => {
+      const irBuilder = new IRBuilder();
+      const code = `let cart = new ShoppingCart()`;
+      const ast = ASTParser.parse(code);
+      const statement = irBuilder.buildStatement(ast.program.body[0]);
+      console.log(statement);
+      console.log(JSON.stringify(statement));
+    });
     it("should correctly parse a call expression", () => {
       const irBuilder = new IRBuilder();
       const code = `cart.addItem('Apple', 1.99);`;
       const ast = ASTParser.parse(code);
       const statement = irBuilder.buildStatement(ast.program.body[0]);
-
+      console.log(statement);
+      console.log(JSON.stringify(statement));
       expect(statement).toBeInstanceOf(IRStatement);
       expect(statement.type).toBe("CallExpression");
       expect(statement.data).toHaveProperty("callee");

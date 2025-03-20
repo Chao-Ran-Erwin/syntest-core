@@ -52,7 +52,10 @@ export class LLMCommunication {
   /**
    * Replace placeholders (e.g. {class_code}) in the prompt
    */
-  private constructPrompt(key: string, placeholders: Record<string, string>): string {
+  private constructPrompt(
+    key: string,
+    placeholders: Record<string, string>,
+  ): string {
     let template = this.prompts[key];
     if (!template) {
       throw new Error(`No prompt found for key: ${key}`);
@@ -85,7 +88,11 @@ export class LLMCommunication {
   /**
    * Send a message to OpenAI and return the response.
    */
-  private async askOpenAI(model: string, systemMessage: string, userMessage: string): Promise<string> {
+  private async askOpenAI(
+    model: string,
+    systemMessage: string,
+    userMessage: string,
+  ): Promise<string> {
     const response = await this.openai.chat.completions.create({
       model,
       messages: [
@@ -105,13 +112,25 @@ export class LLMCommunication {
     const classCode = fs.readFileSync(filePath, "utf8");
 
     // 1. Initial test generation
-    const promptA = this.constructPrompt("self_refine_initial", { class_code: classCode });
-    const initialText = await this.askOpenAI(model, "You are a JavaScript testing expert.", promptA);
+    const promptA = this.constructPrompt("self_refine_initial", {
+      class_code: classCode,
+    });
+    const initialText = await this.askOpenAI(
+      model,
+      "You are a JavaScript testing expert.",
+      promptA,
+    );
     const initialTestSuite = this.cleanCode(initialText);
 
     // 2. Reflection on test suite
-    const promptB = this.constructPrompt("self_refine_reflection", { self_refine_initial: initialTestSuite });
-    const reflectionText = await this.askOpenAI(model, "You are a JavaScript testing expert reflecting on the suite.", promptB);
+    const promptB = this.constructPrompt("self_refine_reflection", {
+      self_refine_initial: initialTestSuite,
+    });
+    const reflectionText = await this.askOpenAI(
+      model,
+      "You are a JavaScript testing expert reflecting on the suite.",
+      promptB,
+    );
     const reflectionOutput = this.cleanCode(reflectionText);
 
     // 3. Refinement of test suite
@@ -119,7 +138,11 @@ export class LLMCommunication {
       self_refine_initial: initialTestSuite,
       self_refine_reflection: reflectionOutput,
     });
-    const refinementText = await this.askOpenAI(model, "Refine the test suite based on reflection.", promptC);
+    const refinementText = await this.askOpenAI(
+      model,
+      "Refine the test suite based on reflection.",
+      promptC,
+    );
 
     return this.cleanCode(refinementText);
   }
@@ -129,7 +152,9 @@ export class LLMCommunication {
    */
   public loadTestSuite(testCaseFolder: string, className: string): string {
     const files = fs.readdirSync(testCaseFolder);
-    const testCaseFile = files.find((file) => file.endsWith(`${className}.test.js`));
+    const testCaseFile = files.find((file) =>
+      file.endsWith(`${className}.test.js`),
+    );
 
     if (!testCaseFile) {
       throw new Error(`Test case for ${className} not found`);

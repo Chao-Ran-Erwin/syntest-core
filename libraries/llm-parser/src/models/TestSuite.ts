@@ -39,9 +39,14 @@ export class TestSuite {
   }
 
   countAllTestCases(): number {
-    return this.describeBlocks.reduce(
-      (accumulator, block) => accumulator + block.testCases.length,
-      0,
-    );
+    const seen = new Set<string>();
+
+    for (const block of this.describeBlocks) {
+      for (const testCase of block.testCases) {
+        const uniqueKey = `${testCase.name}:::${testCase.statements.length}`;
+        seen.add(uniqueKey);
+      }
+    }
+    return seen.size;
   }
 }

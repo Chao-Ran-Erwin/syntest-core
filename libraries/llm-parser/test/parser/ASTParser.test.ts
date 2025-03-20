@@ -15,6 +15,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { beforeEach } from "node:test";
+
 import * as t from "@babel/types";
 
 import { ASTParser } from "../../src/parser/ASTParser";
@@ -42,23 +44,23 @@ describe("ASTParser", () => {
 
   let ast: t.File;
 
-  beforeAll(() => {
+  beforeEach(() => {
     // Parse the sample code before running tests
     ast = ASTParser.parse(sampleCode);
   });
 
-  test("should parse JavaScript code into an AST", () => {
+  it("should parse JavaScript code into an AST", () => {
     expect(ast).toBeDefined();
     expect(ast.type).toBe("File"); // Ensure root node is of type `File`
   });
 
-  test("should extract describe blocks", () => {
+  it("should extract describe blocks", () => {
     const describeBlocks = ASTParser.extractDescribeBlocks(ast);
     expect(describeBlocks).toHaveLength(1); // Only one describe block
     expect(describeBlocks[0].name).toBe("LinkedList"); // Ensure the name matches
   });
 
-  test("should extract it blocks from describe block", () => {
+  it("should extract it blocks from describe block", () => {
     const describeBlocks = ASTParser.extractDescribeBlocks(ast);
     const itBlocks = ASTParser.extractItBlocks(describeBlocks[0].node);
 
@@ -67,7 +69,7 @@ describe("ASTParser", () => {
     expect(itBlocks[1].name).toBe("should append a node");
   });
 
-  test("should extract beforeEach blocks", () => {
+  it("should extract beforeEach blocks", () => {
     const beforeEachBlocks = ASTParser.extractBeforeEachBlocks(ast);
 
     expect(beforeEachBlocks).toHaveLength(1); // One `beforeEach` block
@@ -78,7 +80,7 @@ describe("ASTParser", () => {
     expect(t.isAssignmentExpression(expression)).toBe(true); // Ensure it's an AssignmentExpression
   });
 
-  test("should extract function body from concise arrow function", () => {
+  it("should extract function body from concise arrow function", () => {
     const conciseCode = `
       beforeEach(() => list = new LinkedList());
     `;
@@ -91,7 +93,7 @@ describe("ASTParser", () => {
     expect(t.isExpressionStatement(statement)).toBe(true); // Ensure it's an ExpressionStatement
   });
 
-  test("should handle nested describe blocks", () => {
+  it("should handle nested describe blocks", () => {
     const nestedCode = `
       describe('Outer', () => {
         describe('Inner', () => {

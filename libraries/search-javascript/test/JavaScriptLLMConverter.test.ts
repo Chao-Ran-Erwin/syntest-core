@@ -56,7 +56,11 @@ const expect = chai.expect;
  * Writes `code` to `test/converted-tests/converted-<className>_<index>.test.js`.
  */
 function writeToFile(code: string, className: string, index: number) {
-  const outputDirectory = path.join(process.cwd(), "test", "converted-tests/1");
+  const outputDirectory = path.join(
+    process.cwd(),
+    "test",
+    "converted-tests/LLM-50/3",
+  );
   if (!fs.existsSync(outputDirectory)) {
     fs.mkdirSync(outputDirectory, { recursive: true });
   }
@@ -73,7 +77,7 @@ function writeToFile(code: string, className: string, index: number) {
  * E.g., LLM-test-hillCipher.js0.spec.js, LLM-test-hillCipher.js1.spec.js, ...
  */
 function findAllTestCases(rootPath: string, className: string): string[] {
-  const llmTestCaseFolder = "LLM-tests/1";
+  const llmTestCaseFolder = "LLM-tests/LLM-50/3";
   const testCaseDirectory = path.join(rootPath, "..", llmTestCaseFolder);
 
   // Find all matching files that contain `LLM-test-<className>`.
