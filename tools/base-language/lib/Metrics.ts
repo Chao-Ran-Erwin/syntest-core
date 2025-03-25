@@ -116,6 +116,7 @@ export enum PropertyName {
   INSTRUMENTATION_TIME = "instrumentation-time",
   TYPE_RESOLVE_TIME = "type-resolve-time",
 
+  INITIAL_LLM_POPULATION_SIZE = "initial-llm-population-size",
   LLM_QUERY_TIME = "llm-query-time",
 
   // other results
@@ -637,6 +638,10 @@ export const metrics: Metric[] = [
     name: PropertyName.LLM_QUERY_TIME,
   },
 
+  {
+    type: MetricType.PROPERTY,
+    name: PropertyName.INITIAL_LLM_POPULATION_SIZE,
+  },
   // Archive
   {
     type: MetricType.SERIES,

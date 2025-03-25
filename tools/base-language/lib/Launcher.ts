@@ -198,6 +198,11 @@ export abstract class Launcher<T extends ArgumentsObject> {
       PropertyName.CONFIGURATION,
       `${this.arguments_.configuration.toString()}`,
     );
+
+    this.metricManager.recordProperty(
+      PropertyName.INITIAL_LLM_POPULATION_SIZE,
+      `${this.arguments_.initialLLMPopulationSize.toString()}`,
+    );
   }
 
   abstract initialize(): Promise<void>;
