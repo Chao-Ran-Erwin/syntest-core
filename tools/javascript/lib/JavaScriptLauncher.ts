@@ -848,7 +848,7 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
       }
 
       this.metricManager.recordProperty(
-        "LLM_QUERY_TIME",
+        PropertyName.LLM_QUERY_TIME as PropertyName,
         `${totalLLMTime / 1000}`,
       );
       // Post-process the test suite for encoding

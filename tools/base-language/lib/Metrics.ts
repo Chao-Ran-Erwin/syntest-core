@@ -116,6 +116,8 @@ export enum PropertyName {
   INSTRUMENTATION_TIME = "instrumentation-time",
   TYPE_RESOLVE_TIME = "type-resolve-time",
 
+  LLM_QUERY_TIME = "llm-query-time",
+
   // other results
   ARCHIVE_SIZE = "archive-size",
   MINIMIZED_ARCHIVE_SIZE = "minimized-archive-size",
@@ -628,6 +630,11 @@ export const metrics: Metric[] = [
   {
     type: MetricType.PROPERTY,
     name: PropertyName.TYPE_RESOLVE_TIME,
+  },
+
+  {
+    type: MetricType.PROPERTY,
+    name: PropertyName.LLM_QUERY_TIME,
   },
 
   // Archive
