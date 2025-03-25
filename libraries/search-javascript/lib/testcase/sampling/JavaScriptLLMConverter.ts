@@ -828,9 +828,11 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
           }
         }
       } catch (error) {
-        JavaScriptLLMConverter.LOGGER.warn(
-          `Error processing IR statement: ${error} ${JSON.stringify(irStatement)}`,
-        );
+        if (!this._isKnownAssertion(irStatement)) {
+          JavaScriptLLMConverter.LOGGER.warn(
+            `Error processing IR statement: ${error} ${JSON.stringify(irStatement)}`,
+          );
+        }
       }
     }
     return processedStatements;
@@ -901,6 +903,9 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
               const innerCallExpression = innerCall.data as CallExpressionData;
               if (innerCallExpression.callee.type === "MemberExpression") {
                 return this.sampleMethodCall(depth + 1, innerCallExpression);
+              }
+              if (innerCallExpression.callee.type === "Identifier") {
+                return this.sampleFunctionCall(depth + 1, innerCallExpression);
               }
             }
             // e.g. expect(something.someGetter)
@@ -1309,5 +1314,26 @@ export class JavaScriptLLMConverter extends JavaScriptTestCaseSampler {
     }
     // Fallback: if no special handling is needed, return the original.
     return original;
+  }
+
+  private _isKnownAssertion(irStatement: IRStatement): boolean {
+    if (irStatement.type === "CallExpression") {
+      const callData = irStatement.data as CallExpressionData;
+      if (callData.callee?.type === "MemberExpression") {
+        const memberData = callData.callee.data as MemberExpressionData;
+        if (typeof memberData.property === "string") {
+          const jestMatcherRegex = /^to[A-Z]/;
+          const excluded = new Set(["toString", "toLocaleString", "toFixed"]);
+
+          if (
+            jestMatcherRegex.test(memberData.property) &&
+            !excluded.has(memberData.property)
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 }
