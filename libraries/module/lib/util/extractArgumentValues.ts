@@ -27,10 +27,11 @@ const manualRequired = "TODO fill this in yourself";
 
 // const camelize = (s: string) => s.replace(/-./g, x=>x[1].toUpperCase())
 const kebabize = (s: string) =>
-  s.replaceAll(
-    /[A-Z]+(?![a-z])|[A-Z]/g,
-    ($, ofs) => (ofs ? "-" : "") + $.toLowerCase(),
-  );
+  s
+    .replaceAll(/([\da-z])([A-Z])/g, "$1-$2") // e.g. aA → a-A
+    .replaceAll(/([A-Z]+)([A-Z][a-z])/g, "$1-$2") // e.g. LLMParser → LLM-Parser
+    .replaceAll(/--+/g, "-") // collapse double hyphens
+    .toLowerCase();
 
 function addCommandOptions(
   options: { [key: string]: unknown },
