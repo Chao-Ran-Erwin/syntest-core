@@ -278,7 +278,7 @@ export class Configuration {
         hidden: false,
         type: "boolean",
       },
-      "initial-LLM-population-size": {
+      "initial-llm-population-size": {
         alias: [],
         default: 50,
         description: "Number of LLM tests in the initial population.",
