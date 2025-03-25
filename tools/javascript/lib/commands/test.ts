@@ -218,7 +218,7 @@ export function getTestCommand(
     type: "boolean",
   });
 
-  options.set("initial-llm-populationsize", {
+  options.set("initial-llm-population-size", {
     alias: [],
     default: 50,
     description: "Number of LLM tests in the initial population.",
