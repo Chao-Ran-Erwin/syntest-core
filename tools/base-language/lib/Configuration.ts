@@ -55,7 +55,7 @@ export type AlgorithmOptions = {
   sampler: string;
   terminationTriggers: string[];
   exceptionObjectives: boolean;
-  initialLLMPopulationSize: number;
+  initialLlmPopulationSize: number;
 };
 
 export type BudgetOptions = {

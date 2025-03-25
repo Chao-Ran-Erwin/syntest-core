@@ -15,7 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { OptionGroups } from "@syntest/base-language";
 import { UserInterface } from "@syntest/cli-graphics";
 import { MetricManager } from "@syntest/metric";
 import { Command, ModuleManager } from "@syntest/module";
@@ -216,15 +215,6 @@ export function getTestCommand(
     group: objectivesGroup,
     hidden: false,
     type: "boolean",
-  });
-
-  options.set("initial-llm-population-size", {
-    alias: [],
-    default: 50,
-    description: "Number of LLM tests in the initial population.",
-    group: OptionGroups.SearchAlgorithm,
-    hidden: false,
-    type: "number",
   });
 
   return new Command(

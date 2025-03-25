@@ -819,10 +819,10 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
 
       while (
         finalTestSuite.countAllTestCases() <
-        this.arguments_.initialLLMPopulationSize
+        this.arguments_.initialLlmPopulationSize
       ) {
         const needed =
-          this.arguments_.initialLLMPopulationSize -
+          this.arguments_.initialLlmPopulationSize -
           finalTestSuite.countAllTestCases();
         const batchSize = determineBatchNumber(needed);
 
