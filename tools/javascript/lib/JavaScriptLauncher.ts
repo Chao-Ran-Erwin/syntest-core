@@ -108,6 +108,7 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
   private decoder: JavaScriptDecoder;
   private runner: JavaScriptRunner;
 
+  private llmTestSuite: TestSuite;
   constructor(
     arguments_: JavaScriptArguments,
     moduleManager: ModuleManager,
@@ -124,6 +125,7 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
     );
     JavaScriptLauncher.LOGGER = getLogger(JavaScriptLauncher.name);
     this.archives = new Map();
+    this.llmTestSuite = new TestSuite([]);
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -404,6 +406,65 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
     );
 
     timeInMs = (Date.now() - startPreProcessing) / 1000;
+
+    if (this.arguments_.sampler == "javascript-LLM-converter") {
+      const determineBatchNumber = (requiredTests: number) => {
+        if (requiredTests >= 40) return 4;
+        if (requiredTests >= 20) return 2;
+        return 1;
+      };
+      const llmCommunication = new LLMCommunication();
+      let counter = 0;
+      let totalLLMTime = 0;
+
+      const irBuilder = new IRBuilder();
+      let testSuite;
+
+      while (
+        this.llmTestSuite.countAllTestCases() <
+        this.arguments_.initialLlmPopulationSize
+      ) {
+        const needed =
+          this.arguments_.initialLlmPopulationSize -
+          this.llmTestSuite.countAllTestCases();
+        const batchSize = determineBatchNumber(needed);
+
+        const batchPromises: Promise<string>[] = [];
+        const llmStartTime = Date.now();
+
+        for (let index = 0; index < batchSize; index++) {
+          batchPromises.push(
+            llmCommunication.generateTest(this.targets[0].path),
+          );
+        }
+        const batchResults = await Promise.all(batchPromises);
+        const llmEndTime = Date.now();
+        totalLLMTime += llmEndTime - llmStartTime;
+        for (const testCaseCode of batchResults) {
+          this.storageManager.store(
+            ["LLM-tests"],
+            `LLM-test-${this.targets[0].name}${counter}.spec.js`,
+            testCaseCode,
+          );
+          testSuite = irBuilder.buildIR(testCaseCode);
+          this.llmTestSuite.merge(testSuite);
+          counter++;
+        }
+      }
+
+      this.metricManager.recordProperty(
+        PropertyName.LLM_QUERY_TIME as PropertyName,
+        `${totalLLMTime / 1000}`,
+      );
+      // Post-process the test suite for encoding
+      const temporaryTestSuite = irBuilder.injectBeforeEachIntoTestCases(
+        this.llmTestSuite,
+      );
+      this.llmTestSuite =
+        irBuilder.postProcessFlattenChainedMemberExpressions(
+          temporaryTestSuite,
+        );
+    }
     this.metricManager.recordProperty(
       PropertyName.PREPROCESS_TIME,
       `${timeInMs}`,
@@ -804,60 +865,6 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
     const constantPoolManager = unwrap(constantPoolManagerResult);
     let sampler: JavaScriptTestCaseSampler;
     if (this.arguments_.sampler === "javascript-LLM-converter") {
-      const determineBatchNumber = (requiredTests: number) => {
-        if (requiredTests >= 40) return 4;
-        if (requiredTests >= 20) return 2;
-        return 1;
-      };
-      const llmCommunication = new LLMCommunication();
-      let counter = 0;
-      let totalLLMTime = 0;
-
-      let finalTestSuite: TestSuite = new TestSuite([]);
-      const irBuilder = new IRBuilder();
-      let testSuite;
-
-      while (
-        finalTestSuite.countAllTestCases() <
-        this.arguments_.initialLlmPopulationSize
-      ) {
-        const needed =
-          this.arguments_.initialLlmPopulationSize -
-          finalTestSuite.countAllTestCases();
-        const batchSize = determineBatchNumber(needed);
-
-        const batchPromises: Promise<string>[] = [];
-        const llmStartTime = Date.now();
-
-        for (let index = 0; index < batchSize; index++) {
-          batchPromises.push(llmCommunication.generateTest(target.path));
-        }
-        const batchResults = await Promise.all(batchPromises);
-        const llmEndTime = Date.now();
-        totalLLMTime += llmEndTime - llmStartTime;
-        for (const testCaseCode of batchResults) {
-          this.storageManager.store(
-            ["LLM-tests"],
-            `LLM-test-${target.name}${counter}.spec.js`,
-            testCaseCode,
-          );
-          testSuite = irBuilder.buildIR(testCaseCode);
-          finalTestSuite.merge(testSuite);
-          counter++;
-        }
-      }
-
-      this.metricManager.recordProperty(
-        PropertyName.LLM_QUERY_TIME as PropertyName,
-        `${totalLLMTime / 1000}`,
-      );
-      // Post-process the test suite for encoding
-      const temporaryTestSuite =
-        irBuilder.injectBeforeEachIntoTestCases(finalTestSuite);
-      finalTestSuite =
-        irBuilder.postProcessFlattenChainedMemberExpressions(
-          temporaryTestSuite,
-        );
       // sampler =<JavaScriptLLMConverter>(<LLMConverterPlugin>this.moduleManager.getPlugin(PluginType.Sampler, this.arguments_.sampler))
       //   .createSamplerOperator(<SamplerOptions<JavaScriptTestCase>>(<unknown>currentSubject), finalTestSuite)
       sampler = new JavaScriptLLMConverter(
@@ -881,7 +888,7 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
         this.arguments_.addRemoveArgumentProbability,
         this.arguments_.addArgumentProbability,
         this.arguments_.removeArgumentProbability,
-        finalTestSuite,
+        this.llmTestSuite,
       );
     } else {
       sampler = new JavaScriptRandomSampler(
