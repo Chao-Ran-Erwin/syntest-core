@@ -977,10 +977,10 @@ export class JavaScriptLauncher extends Launcher<JavaScriptArguments> {
     // allocate budget manager
     const iterationBudget = new IterationBudget(this.arguments_.iterations);
     const evaluationBudget = new EvaluationBudget(this.arguments_.evaluations);
-    const searchBudget = new SearchTimeBudget(
-      Math.max(this.arguments_.searchTime - totalLLMTime, 1),
+    const searchBudget = new SearchTimeBudget(this.arguments_.searchTime);
+    const totalTimeBudget = new TotalTimeBudget(
+      Math.max(this.arguments_.totalTime - totalLLMTime / 1000, 1),
     );
-    const totalTimeBudget = new TotalTimeBudget(this.arguments_.totalTime);
     const budgetManager = new BudgetManager();
     budgetManager.addBudget(BudgetType.ITERATION, iterationBudget);
     budgetManager.addBudget(BudgetType.EVALUATION, evaluationBudget);
